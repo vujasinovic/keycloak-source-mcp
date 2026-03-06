@@ -23,6 +23,8 @@ import { analyzeLogs } from "./live-dev/tools/analyze_logs.js";
 import { traceAuthenticationFlow } from "./live-dev/tools/trace_authentication_flow.js";
 import { validateSpiRegistration } from "./live-dev/tools/validate_spi_registration.js";
 import { getDevInstanceConfig } from "./live-dev/tools/get_dev_instance_config.js";
+import { debugAuthFlow } from "./live-dev/tools/debug_auth_flow.js";
+import { diagnoseUserTool } from "./live-dev/tools/diagnose_user.js";
 import { getSourcePath } from "./utils.js";
 import { versionManager } from "./version-manager.js";
 
@@ -55,7 +57,7 @@ function validateEnvironment(): void {
 function printStartupBanner(): void {
   versionManager.initialize();
   const versions = versionManager.listVersions();
-  const toolCount = 21;
+  const toolCount = 23;
 
   console.error("");
   console.error("keycloak-source-mcp started");
@@ -334,6 +336,33 @@ async function main(): Promise<void> {
     },
     async ({ filter }) => ({
       content: [{ type: "text", text: await getDevInstanceConfig(filter) }],
+    })
+  );
+
+  server.tool(
+    "debug_auth_flow",
+    "Real-time auth flow debugger. Phase 'start' captures a log snapshot; phase 'analyze' reads new log entries and produces a source-annotated trace.",
+    {
+      phase: z.enum(["start", "analyze"]).describe("Phase: 'start' to capture snapshot, 'analyze' to produce trace"),
+      realm: z.string().optional().default("master").describe("Realm name (default: master)"),
+      description: z.string().optional().describe("Description of the flow being tested"),
+      snapshot: z.string().optional().describe("JSON snapshot string from the start phase"),
+      version: versionParam,
+    },
+    async ({ phase, realm, description, snapshot, version }) => ({
+      content: [{ type: "text", text: await debugAuthFlow(phase, realm, description, snapshot, version) }],
+    })
+  );
+
+  server.tool(
+    "diagnose_user",
+    "Diagnose why a user cannot log in. Searches by name, email, or username and checks account status, credentials, brute force lockout, recent login events, and active sessions.",
+    {
+      query: z.string().describe('User search query — name, email, or username (e.g. "John Doe", "john@example.com")'),
+      realm: z.string().optional().default("master").describe("Realm to search in (default: master)"),
+    },
+    async ({ query, realm }) => ({
+      content: [{ type: "text", text: await diagnoseUserTool(query, realm) }],
     })
   );
 
