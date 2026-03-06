@@ -14,6 +14,8 @@ import { detectBreakingChanges } from "./tools/detect_breaking_changes.js";
 import { traceDependencies } from "./tools/trace_dependencies.js";
 import { keycloakAdmin } from "./tools/keycloak_admin.js";
 import { upgradeAssistant } from "./tools/upgrade_assistant.js";
+import { visualizeAuthFlow } from "./tools/visualize_auth_flow.js";
+import { checkSecurityAdvisories } from "./tools/check_security_advisories.js";
 import { getSourcePath } from "./utils.js";
 
 // Startup validation
@@ -307,6 +309,65 @@ async function main(): Promise<void> {
             targetKeycloakVersion,
             currentKeycloakSourcePath
           ),
+        },
+      ],
+    })
+  );
+
+  /**
+   * Visualize authentication flows as Mermaid diagrams.
+   */
+  server.tool(
+    "visualize_auth_flow",
+    "Visualize a Keycloak authentication flow as a Mermaid flowchart diagram. Can parse a realm JSON export or generate from a plain English description.",
+    {
+      source: z
+        .enum(["realm_export", "description"])
+        .describe("Source type: 'realm_export' to parse a JSON file, 'description' to generate from text"),
+      realmExportPath: z
+        .string()
+        .optional()
+        .describe("Path to a Keycloak realm JSON export file (required if source is 'realm_export')"),
+      flowName: z
+        .string()
+        .optional()
+        .describe("Specific flow to visualize (default: 'browser')"),
+      description: z
+        .string()
+        .optional()
+        .describe("Plain English description of the flow (required if source is 'description')"),
+    },
+    async ({ source, realmExportPath, flowName, description }) => ({
+      content: [
+        {
+          type: "text",
+          text: await visualizeAuthFlow(source, realmExportPath, flowName, description),
+        },
+      ],
+    })
+  );
+
+  /**
+   * Check security advisories for a Keycloak version.
+   */
+  server.tool(
+    "check_security_advisories",
+    "Check Keycloak's GitHub security advisories for known CVEs affecting a specific version. Fetches live data from GitHub.",
+    {
+      keycloakVersion: z
+        .string()
+        .describe("Keycloak version to check (e.g. '24.0.3')"),
+      severity: z
+        .enum(["all", "critical", "high", "medium", "low"])
+        .optional()
+        .default("all")
+        .describe("Filter by severity (default: 'all')"),
+    },
+    async ({ keycloakVersion, severity }) => ({
+      content: [
+        {
+          type: "text",
+          text: await checkSecurityAdvisories(keycloakVersion, severity),
         },
       ],
     })

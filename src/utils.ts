@@ -191,6 +191,125 @@ export async function fetchKeycloakAdminToken(
   return data.access_token;
 }
 
+/**
+ * In-memory cache for HTTP responses to avoid hammering external URLs.
+ */
+const httpCache = new Map<string, { response: Response; body: unknown; expiresAt: number }>();
+
+/**
+ * Fetch a URL with in-memory caching. Returns a Response-like object.
+ * Cached responses are cloned so the body can be read multiple times.
+ */
+export async function fetchWithCache(url: string, ttlMinutes: number): Promise<Response> {
+  const now = Date.now();
+  const cached = httpCache.get(url);
+
+  if (cached && cached.expiresAt > now) {
+    // Return a new Response from cached body
+    return new Response(JSON.stringify(cached.body), {
+      status: cached.response.status,
+      statusText: cached.response.statusText,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "keycloak-source-mcp/1.0",
+    },
+  });
+
+  if (response.ok) {
+    const body = await response.json();
+    httpCache.set(url, {
+      response,
+      body,
+      expiresAt: now + ttlMinutes * 60 * 1000,
+    });
+    // Return a fresh Response so the caller can read the body
+    return new Response(JSON.stringify(body), {
+      status: response.status,
+      statusText: response.statusText,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  return response;
+}
+
+/**
+ * Validate basic Mermaid syntax structure.
+ * Returns { valid: true } or { valid: false, warning: string }.
+ */
+export function validateMermaid(mermaid: string): { valid: boolean; warning?: string } {
+  const trimmed = mermaid.trim();
+
+  if (!trimmed) {
+    return { valid: false, warning: "Mermaid diagram is empty." };
+  }
+
+  const firstLine = trimmed.split("\n")[0].trim();
+  const validStarts = ["flowchart", "graph", "sequenceDiagram", "classDiagram", "stateDiagram", "gantt", "pie", "erDiagram"];
+  if (!validStarts.some((s) => firstLine.startsWith(s))) {
+    return { valid: false, warning: `Mermaid diagram should start with a diagram type (e.g. 'flowchart TD'). Got: "${firstLine}"` };
+  }
+
+  // Check for balanced brackets
+  let braces = 0;
+  let brackets = 0;
+  let parens = 0;
+  for (const ch of trimmed) {
+    if (ch === "{") braces++;
+    if (ch === "}") braces--;
+    if (ch === "[") brackets++;
+    if (ch === "]") brackets--;
+    if (ch === "(") parens++;
+    if (ch === ")") parens--;
+  }
+
+  if (braces !== 0 || brackets !== 0 || parens !== 0) {
+    return { valid: false, warning: "Mermaid diagram has unbalanced brackets. It may not render correctly." };
+  }
+
+  // Check that there are node definitions
+  const hasNodes = /\w+[\[\({]/.test(trimmed) || /-->/.test(trimmed);
+  if (!hasNodes) {
+    return { valid: false, warning: "Mermaid diagram does not appear to contain any nodes or connections." };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Parse and validate a Keycloak realm JSON export file.
+ */
+export async function parseRealmExport(filePath: string): Promise<{
+  valid: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+}> {
+  if (!fs.existsSync(filePath)) {
+    return { valid: false, error: `File not found: ${filePath}` };
+  }
+
+  try {
+    const raw = await fs.promises.readFile(filePath, "utf-8");
+    const data = JSON.parse(raw) as Record<string, unknown>;
+
+    if (!data.realm && !data.id) {
+      return { valid: false, error: "JSON file does not appear to be a Keycloak realm export (missing 'realm' or 'id' field)." };
+    }
+
+    return { valid: true, data };
+  } catch (error) {
+    return {
+      valid: false,
+      error: `Failed to parse JSON: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 let useRipgrep: boolean | null = null;
 
 /**

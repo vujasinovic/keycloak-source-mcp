@@ -215,6 +215,29 @@ Analyze your custom SPI implementations and detect compatibility issues when upg
 > upgrade_assistant("/projects/my-keycloak-spi", "26.0.0")
 ```
 
+### visualize_auth_flow
+
+Visualize a Keycloak authentication flow as a Mermaid flowchart diagram from a realm export or plain English description.
+
+- **Inputs:** `source` (realm_export or description), `realmExportPath`, `flowName`, `description`
+- **Example prompt:** *"Visualize the browser authentication flow from my realm export at /tmp/realm-export.json"*
+
+```
+> visualize_auth_flow("realm_export", "/tmp/realm-export.json", "browser")
+> visualize_auth_flow("description", undefined, undefined, "First cookie SSO, then username/password (required), then OTP (conditional)")
+```
+
+### check_security_advisories
+
+Check Keycloak's GitHub security advisories for known CVEs affecting a specific version.
+
+- **Inputs:** `keycloakVersion`, optionally `severity` (all/critical/high/medium/low)
+- **Example prompt:** *"Are there any critical CVEs affecting Keycloak 24.0.3?"*
+
+```
+> check_security_advisories("24.0.3", "critical")
+```
+
 ## Claude Desktop Configuration
 
 Add this to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
@@ -259,10 +282,10 @@ npm start
 
 Potential future tools:
 
-- **Multi-version source indexing** — Index multiple Keycloak versions simultaneously for faster cross-version analysis
-- **Theme development assistant** — Help scaffold and debug custom Keycloak themes (login, account, email)
-- **Realm configuration diff tool** — Compare realm exports between environments or versions
-- **Test scaffolding generator** — Generate JUnit test skeletons for custom SPI implementations
+- **Multi-realm diff across environments** — Compare realm configurations between dev, staging, and production
+- **Automated upgrade PR generator** — Generate a pull request with all needed changes to upgrade custom SPIs
+- **Keycloak Operator CRD assistant** — Help build and validate custom resources for the Keycloak Operator
+- **Performance profiling hints based on SPI usage patterns** — Detect common performance anti-patterns in custom implementations
 
 ## License
 
