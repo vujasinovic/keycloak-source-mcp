@@ -82,7 +82,10 @@ async function visualizeFromExport(exportPath: string, flowName?: string): Promi
 
   let realmData: RealmExport;
   try {
-    const raw = await fs.promises.readFile(exportPath, "utf-8");
+    let raw = await fs.promises.readFile(exportPath, "utf-8");
+    // Handle Keycloak realm templates with $(env:...) placeholders
+    // Replace bare (unquoted) placeholders with quoted placeholder strings
+    raw = raw.replace(/(?<!")(\$\(env:[^)]+\))(?!")/g, '"$1"');
     realmData = JSON.parse(raw) as RealmExport;
   } catch (error) {
     return `Error: Failed to parse realm export JSON: ${error instanceof Error ? error.message : String(error)}`;
