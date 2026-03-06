@@ -18,7 +18,6 @@ export default defineConfig({
         "src/tools/trace_dependencies.ts",
         "src/tools/upgrade_assistant.ts",
         "src/tools/check_security_advisories.ts",
-        "src/tools/generate_spi_boilerplate.ts",
       ],
       thresholds: {
         statements: 75,

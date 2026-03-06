@@ -159,17 +159,6 @@ SPI Extension Points
 
 ## Advanced Tools
 
-### generate_spi_boilerplate
-
-Generate a ready-to-use Java SPI implementation skeleton with Provider class, Factory class, META-INF/services entry, and pom.xml dependencies.
-
-- **Inputs:** `spiType`, `description`, `providerName`, `packageName`
-- **Example prompt:** *"Generate an Authenticator SPI that sends an SMS verification code. Call it SmsSender in the com.mycompany.keycloak package."*
-
-```
-> generate_spi_boilerplate("Authenticator", "Send SMS verification code during login", "SmsSender", "com.mycompany.keycloak")
-```
-
 ### detect_breaking_changes
 
 Compare Keycloak SPI interfaces between two source versions to detect breaking changes.
