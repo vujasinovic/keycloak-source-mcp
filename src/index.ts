@@ -9,7 +9,6 @@ import { findInterfaceImplementors } from "./tools/find_interface_implementors.j
 import { searchSpiDefinitions } from "./tools/search_spi_definitions.js";
 import { grepSource } from "./tools/grep_source.js";
 import { explainImplementation } from "./tools/explain_implementation.js";
-import { generateSpiBoilerplate } from "./tools/generate_spi_boilerplate.js";
 import { detectBreakingChanges } from "./tools/detect_breaking_changes.js";
 import { traceDependencies } from "./tools/trace_dependencies.js";
 import { keycloakAdmin } from "./tools/keycloak_admin.js";
@@ -148,21 +147,6 @@ async function main(): Promise<void> {
     },
     async ({ topic, version }) => ({
       content: [{ type: "text", text: await explainImplementation(topic, version) }],
-    })
-  );
-
-  server.tool(
-    "generate_spi_boilerplate",
-    "Generate a Java SPI implementation skeleton. Produces Provider, Factory, META-INF/services, and pom.xml.",
-    {
-      spiType: z.string().describe('SPI type (e.g. "Authenticator", "RequiredActionProvider")'),
-      description: z.string().describe("What the customization should do"),
-      providerName: z.string().describe('Class name prefix (e.g. "SmsSender")'),
-      packageName: z.string().describe('Java package (e.g. "com.mycompany.keycloak")'),
-      version: versionParam,
-    },
-    async ({ spiType, description, providerName, packageName, version }) => ({
-      content: [{ type: "text", text: await generateSpiBoilerplate(spiType, description, providerName, packageName, version) }],
     })
   );
 
