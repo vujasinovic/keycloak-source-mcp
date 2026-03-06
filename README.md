@@ -238,6 +238,56 @@ Check Keycloak's GitHub security advisories for known CVEs affecting a specific 
 > check_security_advisories("24.0.3", "critical")
 ```
 
+## Live Development Intelligence
+
+Connect to a locally running Keycloak instance for real-time development assistance. Works with **Docker**, **IDELauncher**, or **Maven** — see what providers are loaded, trace authentication flows through logs, validate SPI registration, and inspect the running configuration.
+
+### Quick Setup
+
+Start Keycloak (Docker is the simplest option):
+
+```bash
+docker run -p 8080:8080 \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+  quay.io/keycloak/keycloak:latest start-dev
+```
+
+Then set these env vars in your MCP client config:
+
+```bash
+KC_DEV_URL=http://localhost:8080
+KC_DEV_ADMIN_USERNAME=admin
+KC_DEV_ADMIN_PASSWORD=admin
+KC_DEV_LOG_PATH=/tmp/keycloak.log  # optional, enables log analysis
+```
+
+Then ask: *"Use connect_dev_instance to check my Keycloak setup"*
+
+### Live Dev Tools
+
+| Tool | Description |
+|------|-------------|
+| `connect_dev_instance` | Test connection, show version info and custom providers |
+| `get_loaded_providers` | List all runtime SPI providers with source correlation |
+| `analyze_logs` | Parse and analyze Keycloak log entries |
+| `trace_authentication_flow` | Guide through tracing an auth flow |
+| `validate_spi_registration` | Check custom SPI setup for common mistakes |
+| `get_dev_instance_config` | Show active configuration filtered by prefix |
+
+### Example Development Loop
+
+**You:** "Check if my Keycloak is running and show custom providers"
+**AI:** 🟢 Keycloak 26.0.1 connected. 2 custom providers found — SmsSenderAuthenticatorFactory (✅ source found), AuditEventListener (⚠️ source not found)
+
+**You:** "My SMS authenticator isn't working. Analyze the last 500 log lines"
+**AI:** Found 1 ERROR: AuthenticationFlowException at AuthenticationProcessor.java:456. Auth flow: cookie→skip, username-password→success, sms-auth→failure.
+
+**You:** "Validate my SMS authenticator SPI registration"
+**AI:** ✅ Factory source found, ✅ META-INF/services entry present, ✅ Provider loaded at runtime. Registration looks correct — the issue is in the authenticator logic, not registration.
+
+For comprehensive documentation, see [docs/live-dev-intelligence.md](docs/live-dev-intelligence.md).
+
 ## Claude Desktop Configuration
 
 Add this to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
