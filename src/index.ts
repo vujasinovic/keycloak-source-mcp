@@ -9,6 +9,11 @@ import { findInterfaceImplementors } from "./tools/find_interface_implementors.j
 import { searchSpiDefinitions } from "./tools/search_spi_definitions.js";
 import { grepSource } from "./tools/grep_source.js";
 import { explainImplementation } from "./tools/explain_implementation.js";
+import { generateSpiBoilerplate } from "./tools/generate_spi_boilerplate.js";
+import { detectBreakingChanges } from "./tools/detect_breaking_changes.js";
+import { traceDependencies } from "./tools/trace_dependencies.js";
+import { keycloakAdmin } from "./tools/keycloak_admin.js";
+import { upgradeAssistant } from "./tools/upgrade_assistant.js";
 import { getSourcePath } from "./utils.js";
 
 // Startup validation
@@ -146,6 +151,164 @@ async function main(): Promise<void> {
     },
     async ({ topic }) => ({
       content: [{ type: "text", text: await explainImplementation(topic) }],
+    })
+  );
+
+  /**
+   * Generate a ready-to-use Java SPI implementation skeleton.
+   */
+  server.tool(
+    "generate_spi_boilerplate",
+    "Generate a ready-to-use Java SPI implementation skeleton based on a description. Produces Provider class, Factory class, META-INF/services entry, and pom.xml dependencies.",
+    {
+      spiType: z
+        .string()
+        .describe(
+          'SPI type (e.g. "Authenticator", "RequiredActionProvider", "EventListenerProvider", "TokenMapper", "UserStorageProvider")'
+        ),
+      description: z
+        .string()
+        .describe("Plain English description of what the customization should do"),
+      providerName: z
+        .string()
+        .describe('Desired provider class name prefix (e.g. "SmsSender")'),
+      packageName: z
+        .string()
+        .describe('Target Java package (e.g. "com.mycompany.keycloak")'),
+    },
+    async ({ spiType, description, providerName, packageName }) => ({
+      content: [
+        {
+          type: "text",
+          text: await generateSpiBoilerplate(spiType, description, providerName, packageName),
+        },
+      ],
+    })
+  );
+
+  /**
+   * Detect breaking changes between Keycloak versions.
+   */
+  server.tool(
+    "detect_breaking_changes",
+    "Compare Keycloak SPI interfaces between two versions to detect breaking changes. Categorizes changes as BREAKING or NON-BREAKING.",
+    {
+      fromVersion: z.string().describe("Source Keycloak version (e.g. '24.0.0')"),
+      toVersion: z.string().describe("Target Keycloak version (e.g. '26.0.0')"),
+      interfaceNames: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Specific interfaces to check. If empty, scans all commonly customized SPIs."
+        ),
+      sourcePathV1: z
+        .string()
+        .optional()
+        .describe("Path to older version source. Falls back to KEYCLOAK_SOURCE_PATH."),
+      sourcePathV2: z
+        .string()
+        .optional()
+        .describe("Path to newer version source. Falls back to KEYCLOAK_SOURCE_PATH."),
+    },
+    async ({ fromVersion, toVersion, interfaceNames, sourcePathV1, sourcePathV2 }) => ({
+      content: [
+        {
+          type: "text",
+          text: await detectBreakingChanges(
+            fromVersion,
+            toVersion,
+            interfaceNames,
+            sourcePathV1,
+            sourcePathV2
+          ),
+        },
+      ],
+    })
+  );
+
+  /**
+   * Trace class dependencies upstream and downstream.
+   */
+  server.tool(
+    "trace_dependencies",
+    "Trace what a Keycloak class depends on (upstream) and what depends on it (downstream). Shows a dependency tree with Keycloak internal, JDK, Jakarta EE, and external classifications.",
+    {
+      className: z.string().describe("Class or interface name to trace"),
+      direction: z
+        .enum(["upstream", "downstream", "both"])
+        .describe("upstream = what it depends on, downstream = what depends on it"),
+      depth: z
+        .number()
+        .optional()
+        .default(2)
+        .describe("How many levels deep to trace (default: 2, max: 4)"),
+    },
+    async ({ className, direction, depth }) => ({
+      content: [
+        {
+          type: "text",
+          text: await traceDependencies(className, direction, depth),
+        },
+      ],
+    })
+  );
+
+  /**
+   * Query a running Keycloak instance via Admin REST API.
+   */
+  server.tool(
+    "keycloak_admin",
+    "Connect to a running Keycloak instance and perform admin queries. Requires KEYCLOAK_ADMIN_URL, KEYCLOAK_ADMIN_USERNAME, KEYCLOAK_ADMIN_PASSWORD env vars.",
+    {
+      action: z
+        .string()
+        .describe(
+          'Action to perform: "list_realms", "list_flows", "list_clients", "list_providers", "get_realm_settings"'
+        ),
+      realm: z
+        .string()
+        .optional()
+        .describe('Realm name (default: "master"). Required for list_flows, list_clients, get_realm_settings.'),
+    },
+    async ({ action, realm }) => ({
+      content: [
+        {
+          type: "text",
+          text: await keycloakAdmin(action, realm),
+        },
+      ],
+    })
+  );
+
+  /**
+   * Analyze custom SPI implementations for upgrade compatibility.
+   */
+  server.tool(
+    "upgrade_assistant",
+    "Analyze a developer's custom Keycloak SPI implementations and detect compatibility issues for a target Keycloak version. Produces an actionable upgrade report.",
+    {
+      customSourcePath: z
+        .string()
+        .describe("Path to the developer's custom Keycloak extensions source code"),
+      targetKeycloakVersion: z
+        .string()
+        .describe("The Keycloak version to upgrade to"),
+      currentKeycloakSourcePath: z
+        .string()
+        .optional()
+        .describe("Path to the target Keycloak version source. Falls back to KEYCLOAK_SOURCE_PATH."),
+    },
+    async ({ customSourcePath, targetKeycloakVersion, currentKeycloakSourcePath }) => ({
+      content: [
+        {
+          type: "text",
+          text: await upgradeAssistant(
+            customSourcePath,
+            targetKeycloakVersion,
+            currentKeycloakSourcePath
+          ),
+        },
+      ],
     })
   );
 

@@ -2,6 +2,195 @@ import { execaCommand } from "execa";
 import * as path from "node:path";
 import * as fs from "node:fs";
 
+/**
+ * Parsed method from a Java class/interface.
+ */
+export interface ParsedMethod {
+  name: string;
+  returnType: string;
+  parameters: string;
+  modifiers: string[];
+  javadoc: string;
+}
+
+/**
+ * Result of parsing a Java source file.
+ */
+export interface ParsedJavaClass {
+  className: string;
+  packageName: string;
+  imports: string[];
+  implementsList: string[];
+  extendsList: string[];
+  methods: ParsedMethod[];
+}
+
+/**
+ * Parse a Java source file to extract class structure.
+ * Extracts class name, package, imports, implements/extends, and method signatures.
+ */
+export function parseJavaClass(source: string): ParsedJavaClass {
+  const result: ParsedJavaClass = {
+    className: "",
+    packageName: "",
+    imports: [],
+    implementsList: [],
+    extendsList: [],
+    methods: [],
+  };
+
+  const lines = source.split("\n");
+
+  // Package
+  const pkgMatch = source.match(/^package\s+([\w.]+)\s*;/m);
+  if (pkgMatch) result.packageName = pkgMatch[1];
+
+  // Imports
+  const importRegex = /^import\s+(?:static\s+)?([\w.*]+)\s*;/gm;
+  let importMatch;
+  while ((importMatch = importRegex.exec(source)) !== null) {
+    result.imports.push(importMatch[1]);
+  }
+
+  // Class/interface declaration
+  const declRegex = /(?:public\s+|protected\s+|private\s+)?(?:abstract\s+)?(?:final\s+)?(?:class|interface|enum|record)\s+(\w+)(?:<[^>]*>)?(?:\s+extends\s+([\w\s,<>?]+?))?(?:\s+implements\s+([\w\s,<>?]+?))?\s*\{/;
+  const declMatch = source.match(declRegex);
+  if (declMatch) {
+    result.className = declMatch[1];
+    if (declMatch[2]) {
+      result.extendsList = declMatch[2].split(",").map((s) => s.trim().replace(/<.*>/, "")).filter(Boolean);
+    }
+    if (declMatch[3]) {
+      result.implementsList = declMatch[3].split(",").map((s) => s.trim().replace(/<.*>/, "")).filter(Boolean);
+    }
+  }
+
+  // Methods — scan line by line for method signatures
+  let currentJavadoc = "";
+  let inJavadoc = false;
+  let braceDepth = 0;
+  let inClassBody = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Track brace depth to know when we're at class level
+    for (const ch of line) {
+      if (ch === "{") braceDepth++;
+      if (ch === "}") braceDepth--;
+    }
+
+    if (!inClassBody && braceDepth >= 1) {
+      inClassBody = true;
+      continue;
+    }
+
+    // Javadoc tracking
+    if (trimmed.startsWith("/**")) {
+      inJavadoc = true;
+      currentJavadoc = "";
+    }
+    if (inJavadoc) {
+      const docLine = trimmed
+        .replace(/^\/\*\*\s?/, "")
+        .replace(/^\*\/\s?$/, "")
+        .replace(/^\*\s?/, "")
+        .trim();
+      if (docLine) currentJavadoc += (currentJavadoc ? "\n" : "") + docLine;
+      if (trimmed.includes("*/")) {
+        inJavadoc = false;
+      }
+      continue;
+    }
+
+    // Only parse methods at class-body level (braceDepth == 1)
+    if (!inClassBody || braceDepth !== 1) {
+      if (!trimmed.startsWith("@")) currentJavadoc = "";
+      continue;
+    }
+
+    // Skip annotations but preserve them as modifiers
+    if (trimmed.startsWith("@")) continue;
+
+    // Method signature pattern
+    const methodRegex = /^((?:(?:public|protected|private|static|final|abstract|default|synchronized|native)\s+)*)(?:<[\w\s,?]+>\s+)?([\w<>\[\]?,\s]+?)\s+(\w+)\s*\(([^)]*)\)\s*(?:throws\s+[\w\s,]+)?\s*[;{]/;
+    const methodMatch = trimmed.match(methodRegex);
+
+    if (methodMatch) {
+      const modifiers = methodMatch[1].trim().split(/\s+/).filter(Boolean);
+      const returnType = methodMatch[2].trim();
+      const name = methodMatch[3];
+      const params = methodMatch[4].trim();
+
+      // Skip constructors (return type equals class name)
+      if (name === result.className) {
+        currentJavadoc = "";
+        continue;
+      }
+
+      // Collect annotations from preceding lines
+      for (let j = i - 1; j >= 0; j--) {
+        const prev = lines[j].trim();
+        if (prev.startsWith("@")) {
+          modifiers.unshift(prev.split("(")[0]);
+        } else if (prev === "" || prev.startsWith("*") || prev.endsWith("*/")) {
+          break;
+        } else {
+          break;
+        }
+      }
+
+      result.methods.push({
+        name,
+        returnType,
+        parameters: params,
+        modifiers,
+        javadoc: currentJavadoc,
+      });
+    }
+
+    currentJavadoc = "";
+  }
+
+  return result;
+}
+
+/**
+ * Fetch an admin access token from a Keycloak instance using the OAuth2 resource owner password flow.
+ */
+export async function fetchKeycloakAdminToken(
+  baseUrl: string,
+  realm: string,
+  clientId: string,
+  username: string,
+  password: string
+): Promise<string> {
+  const tokenUrl = `${baseUrl}/realms/${realm}/protocol/openid-connect/token`;
+
+  const body = new URLSearchParams({
+    grant_type: "password",
+    client_id: clientId,
+    username,
+    password,
+  });
+
+  const response = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to obtain admin token: ${response.status} ${response.statusText}`
+    );
+  }
+
+  const data = (await response.json()) as { access_token: string };
+  return data.access_token;
+}
+
 let useRipgrep: boolean | null = null;
 
 /**

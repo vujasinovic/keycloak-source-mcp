@@ -157,6 +157,64 @@ SPI Extension Points
   services/src/main/resources/META-INF/services/org.keycloak.authentication.AuthenticatorFactory
 ```
 
+## Advanced Tools
+
+### generate_spi_boilerplate
+
+Generate a ready-to-use Java SPI implementation skeleton with Provider class, Factory class, META-INF/services entry, and pom.xml dependencies.
+
+- **Inputs:** `spiType`, `description`, `providerName`, `packageName`
+- **Example prompt:** *"Generate an Authenticator SPI that sends an SMS verification code. Call it SmsSender in the com.mycompany.keycloak package."*
+
+```
+> generate_spi_boilerplate("Authenticator", "Send SMS verification code during login", "SmsSender", "com.mycompany.keycloak")
+```
+
+### detect_breaking_changes
+
+Compare Keycloak SPI interfaces between two source versions to detect breaking changes.
+
+- **Inputs:** `fromVersion`, `toVersion`, optionally `interfaceNames`, `sourcePathV1`, `sourcePathV2`
+- **Example prompt:** *"What SPI interfaces changed between Keycloak 24 and 26 that would affect my custom Authenticator?"*
+
+```
+> detect_breaking_changes("24.0.0", "26.0.0", ["Authenticator", "AuthenticatorFactory"])
+```
+
+### trace_dependencies
+
+Trace what a Keycloak class depends on and what depends on it — understand the blast radius.
+
+- **Inputs:** `className`, `direction` (upstream/downstream/both), optionally `depth`
+- **Example prompt:** *"What does AuthenticationProcessor depend on, and what uses it?"*
+
+```
+> trace_dependencies("AuthenticationProcessor", "both", 2)
+```
+
+### keycloak_admin
+
+Connect to a running Keycloak instance and perform administrative queries.
+
+- **Inputs:** `action` (list_realms, list_flows, list_clients, list_providers, get_realm_settings), optionally `realm`
+- **Additional env vars:** `KEYCLOAK_ADMIN_URL`, `KEYCLOAK_ADMIN_USERNAME`, `KEYCLOAK_ADMIN_PASSWORD`, optionally `KEYCLOAK_ADMIN_REALM`, `KEYCLOAK_ADMIN_CLIENT_ID`
+- **Example prompt:** *"Show me all authentication flows in the master realm of my running Keycloak."*
+
+```
+> keycloak_admin("list_flows", "master")
+```
+
+### upgrade_assistant
+
+Analyze your custom SPI implementations and detect compatibility issues when upgrading Keycloak.
+
+- **Inputs:** `customSourcePath`, `targetKeycloakVersion`, optionally `currentKeycloakSourcePath`
+- **Example prompt:** *"Check if my custom extensions in /projects/my-keycloak-spi are compatible with Keycloak 26."*
+
+```
+> upgrade_assistant("/projects/my-keycloak-spi", "26.0.0")
+```
+
 ## Claude Desktop Configuration
 
 Add this to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
@@ -196,6 +254,15 @@ npm install
 npm run build
 npm start
 ```
+
+## Roadmap
+
+Potential future tools:
+
+- **Multi-version source indexing** — Index multiple Keycloak versions simultaneously for faster cross-version analysis
+- **Theme development assistant** — Help scaffold and debug custom Keycloak themes (login, account, email)
+- **Realm configuration diff tool** — Compare realm exports between environments or versions
+- **Test scaffolding generator** — Generate JUnit test skeletons for custom SPI implementations
 
 ## License
 
