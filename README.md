@@ -129,7 +129,9 @@ Search results for: "@AutoService" (files: *.java)
 
 ### explain_implementation
 
-Understand how a Keycloak feature works — finds key classes, interfaces, implementations, and SPI extension points.
+The primary tool for understanding Keycloak internals. Accepts natural language queries about features or specific class names. Orchestrates deep source analysis including class hierarchies, interface method signatures, SPI extension points, implementations, and dependencies.
+
+**Topic query — conceptual overview:**
 
 ```
 > explain_implementation("authentication flow")
@@ -139,22 +141,77 @@ Keycloak Implementation Analysis: "authentication flow"
 
 Key Classes
 ----------------------------------------
-  services/src/main/java/org/keycloak/authentication/AuthenticationProcessor.java:42:
-    public class AuthenticationProcessor {
+  AuthenticationProcessor
+    File: services/src/main/java/org/keycloak/authentication/AuthenticationProcessor.java
+    Processes authentication flow executions
+    Key methods: authenticate, attachSession, ...
 
 Main Interfaces
 ----------------------------------------
-  server-spi/src/main/java/org/keycloak/authentication/Authenticator.java:8:
-    public interface Authenticator extends Provider {
+  Authenticator
+    File: server-spi/src/main/java/org/keycloak/authentication/Authenticator.java
+    An authenticator is responsible for authenticating a user in the context of an authentication flow.
+    Methods:
+      - void authenticate(AuthenticationFlowContext context) — Called to authenticate a user
+      - void action(AuthenticationFlowContext context) — Called after a form action has been submitted
+      - boolean requiresUser() — Does this authenticator require the user to already be identified?
+      ...
 
 Default Implementations
 ----------------------------------------
-  services/src/main/java/org/keycloak/authentication/authenticators/browser/UsernamePasswordForm.java:25:
-    public class UsernamePasswordForm extends AbstractUsernameFormAuthenticator implements Authenticator
+  UsernamePasswordForm implements Authenticator
+    File: services/src/main/java/org/.../UsernamePasswordForm.java
+    Username/password form authenticator implementation
 
 SPI Extension Points
 ----------------------------------------
-  services/src/main/resources/META-INF/services/org.keycloak.authentication.AuthenticatorFactory
+  META-INF service: org.keycloak.authentication.AuthenticatorFactory
+    Registered providers:
+      - org.keycloak.authentication.authenticators.browser.UsernamePasswordFormFactory
+      ...
+```
+
+**Class query — deep analysis of a specific class:**
+
+```
+> explain_implementation("UsernamePasswordForm")
+
+Deep Analysis: UsernamePasswordForm
+============================================================
+
+Overview
+----------------------------------------
+File: services/src/main/java/org/.../UsernamePasswordForm.java
+Package: org.keycloak.authentication.authenticators
+Extends: AbstractUsernameFormAuthenticator
+Username/password form authenticator implementation.
+
+Methods
+----------------------------------------
+  void authenticate(AuthenticationFlowContext context)
+  void action(AuthenticationFlowContext context)
+  ...
+
+Interface / Superclass Hierarchy
+----------------------------------------
+  AbstractUsernameFormAuthenticator
+    Abstract base class for authenticators that use a username form
+    Implements: Authenticator
+    Methods: validateUser, requiresUser, close
+
+Known Implementors / Subclasses
+----------------------------------------
+  (none — this is a concrete class)
+
+Keycloak Dependencies
+----------------------------------------
+  org.keycloak.authentication.AuthenticationFlowContext
+  org.keycloak.models.KeycloakSession
+  ...
+
+Full Source
+----------------------------------------
+  (complete source code)
 ```
 
 ## Advanced Tools
@@ -298,16 +355,16 @@ Add this to your Claude Desktop config (`~/Library/Application Support/Claude/cl
 ## Example Conversations
 
 **"How does Keycloak handle authentication flows?"**
-Use `explain_implementation("authentication flow")` to get an overview, then `get_class_source` on `AuthenticationProcessor` for details.
+Use `explain_implementation("authentication flow")` — returns key classes, interface method signatures, default implementations, and SPI extension points in a single call.
 
 **"I want to build a custom Authenticator SPI"**
-Use `search_spi_definitions("Authenticator")` to see existing SPIs, then `find_interface_implementors("Authenticator")` to study how built-in authenticators are implemented.
+Use `explain_implementation("Authenticator")` to get the full interface contract with method javadocs, known implementors, and SPI registration. Then `explain_implementation("UsernamePasswordForm")` to study a concrete example with full source.
 
 **"Where is the token refresh logic?"**
-Use `grep_source("refreshToken", "*.java")` or `explain_implementation("token refresh")` to find the relevant code paths.
+Use `explain_implementation("token refresh")` to find the relevant classes, interfaces, and SPI extension points.
 
 **"Show me how Required Actions work"**
-Use `explain_implementation("required action")` to discover the key interfaces, then `get_class_source` on `RequiredActionProvider` to read the interface contract.
+Use `explain_implementation("required action")` to discover key interfaces with method signatures, or `explain_implementation("RequiredActionProvider")` for a deep dive into the interface itself.
 
 ## Development
 
