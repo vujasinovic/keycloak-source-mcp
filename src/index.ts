@@ -142,9 +142,11 @@ async function main(): Promise<void> {
 
   server.tool(
     "explain_implementation",
-    "Explain how a Keycloak feature works by finding relevant source files, interfaces, implementations, and SPIs.",
+    "Primary tool for understanding Keycloak internals. Accepts natural language queries about features, classes, or flows. " +
+    "Orchestrates deep source analysis including class hierarchies, interface methods, SPI extension points, implementations, and dependencies. " +
+    'Examples: "How does authentication flow work?", "Explain ExecuteActionsActionTokenHandler", "What happens during password reset?", "RequiredActionProvider"',
     {
-      topic: z.string().describe('Topic (e.g. "authentication flow", "token refresh", "user federation")'),
+      topic: z.string().describe('Natural language query or class name (e.g. "How does token refresh work?", "AuthenticationProcessor", "required action flow")'),
       version: versionParam,
     },
     async ({ topic, version }) => ({

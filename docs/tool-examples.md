@@ -127,15 +127,43 @@ Tool call: trace_dependencies("TokenManager", "both", 3)
 
 ### explain_implementation
 
-Get a high-level overview of how a Keycloak feature works. Finds key classes, interfaces, implementations, and SPI extension points.
+The primary tool for understanding Keycloak internals. Accepts natural language queries about features, classes, or flows. Orchestrates deep source analysis including class hierarchies, interface methods, SPI extension points, implementations, and dependencies.
+
+**Two modes of operation:**
+
+1. **Class mode** — detects specific class names and provides deep analysis (source code, hierarchy, implementors, SPI registration, usages)
+2. **Topic mode** — detects conceptual topics and orchestrates multiple searches for a comprehensive overview
+
+**Class-mode examples:**
+
+```
+Prompt: "Explain how AuthenticationProcessor works"
+Tool call: explain_implementation("AuthenticationProcessor")
+→ Returns: Deep Analysis with full source, methods, hierarchy, implementors, dependencies, SPI registration
+```
+
+```
+Prompt: "Explain how UsernamePasswordForm works"
+Tool call: explain_implementation("Explain how UsernamePasswordForm works")
+→ Returns: Deep Analysis including superclass hierarchy (AbstractUsernameFormAuthenticator → Authenticator)
+```
+
+```
+Prompt: "What is RequiredActionProvider?"
+Tool call: explain_implementation("RequiredActionProvider")
+→ Returns: Interface methods with javadoc, known implementors (VerifyEmail, etc.), SPI registration
+```
+
+**Topic-mode examples:**
 
 ```
 Prompt: "How does Keycloak handle authentication flows?"
 Tool call: explain_implementation("authentication flow")
+→ Returns: Key classes with descriptions, interface method signatures, default implementations, SPI extension points with registered providers
 ```
 
 ```
-Prompt: "Explain how token refresh works"
+Prompt: "How does token refresh work?"
 Tool call: explain_implementation("token refresh")
 ```
 
@@ -147,6 +175,17 @@ Tool call: explain_implementation("user federation")
 ```
 Prompt: "Explain required actions in version 24"
 Tool call: explain_implementation("required action", "v24")
+```
+
+```
+Prompt: "What happens during a password reset flow?"
+Tool call: explain_implementation("password reset")
+```
+
+```
+Prompt: "How does Keycloak handle login page rendering?"
+Tool call: explain_implementation("login")
+→ Returns: Key classes, interfaces, SPI extension points, plus FreeMarker templates (for UI-related topics)
 ```
 
 ---
@@ -516,11 +555,11 @@ Tool call: get_dev_instance_config("quarkus.datasource")
 
 ### Building a Custom Authenticator
 
-1. **Discover the interface:** `explain_implementation("authentication flow")`
-2. **Study the SPI contract:** `get_class_source("server-spi/src/.../Authenticator.java")`
-3. **See existing examples:** `find_interface_implementors("Authenticator")`
-4. **Read an example implementation:** `get_class_source("services/src/.../UsernamePasswordForm.java")`
-5. **Check SPI registration pattern:** `search_spi_definitions("AuthenticatorFactory")`
+1. **Understand the full picture:** `explain_implementation("authentication flow")` — returns key classes, interfaces with method signatures, implementations, and SPI extension points in one call
+2. **Deep-dive into the interface:** `explain_implementation("Authenticator")` — full source, methods with javadoc, known implementors, SPI registration
+3. **Study an example implementation:** `explain_implementation("UsernamePasswordForm")` — full source with superclass hierarchy
+4. **Check SPI registration pattern:** `search_spi_definitions("AuthenticatorFactory")`
+5. **Explore a specific method:** `grep_source("authenticate\\(AuthenticationFlowContext", "*.java")`
 
 ### Upgrading Custom Extensions
 
