@@ -1,6 +1,7 @@
-import { execaCommand } from "execa";
+import { execa } from "execa";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { versionManager } from "./version-manager.js";
 
 /**
  * Parsed method from a Java class/interface.
@@ -311,25 +312,44 @@ export async function parseRealmExport(filePath: string): Promise<{
 }
 
 let useRipgrep: boolean | null = null;
+let rgBinary = "rg";
 
 /**
  * Check if ripgrep (rg) is available on the system.
  */
 async function isRipgrepAvailable(): Promise<boolean> {
   if (useRipgrep !== null) return useRipgrep;
-  try {
-    await execaCommand("rg --version");
-    useRipgrep = true;
-  } catch {
-    useRipgrep = false;
+
+  // Try common rg locations
+  const candidates = [
+    "rg",
+    "/opt/homebrew/bin/rg",
+    "/usr/local/bin/rg",
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      await execa(candidate, ["--version"]);
+      rgBinary = candidate;
+      useRipgrep = true;
+      return true;
+    } catch {
+      // try next
+    }
   }
-  return useRipgrep;
+
+  useRipgrep = false;
+  return false;
 }
 
 /**
  * Get the validated Keycloak source path from environment.
+ * Optionally accepts a version name to resolve via VersionManager.
  */
-export function getSourcePath(): string {
+export function getSourcePath(version?: string): string {
+  if (version) {
+    return versionManager.resolve(version);
+  }
   const sourcePath = process.env.KEYCLOAK_SOURCE_PATH;
   if (!sourcePath) {
     throw new Error(
@@ -360,7 +380,7 @@ export async function searchWithRg(
 
   if (hasRg) {
     try {
-      const result = await execaCommand(`rg ${args.join(" ")}`, {
+      const result = await execa(rgBinary, args, {
         cwd,
         timeout: 30000,
       });
@@ -373,10 +393,16 @@ export async function searchWithRg(
     }
   }
 
-  // Fallback to grep
+  // Check if this is a --files mode request (list files by pattern)
+  const isFilesMode = args.includes("--files");
+  if (isFilesMode) {
+    return fallbackFindFiles(args, cwd);
+  }
+
+  // Fallback to grep for content search
   const grepArgs = convertRgArgsToGrep(args);
   try {
-    const result = await execaCommand(`grep ${grepArgs.join(" ")}`, {
+    const result = await execa("grep", grepArgs, {
       cwd,
       timeout: 60000,
     });
@@ -389,41 +415,95 @@ export async function searchWithRg(
 }
 
 /**
+ * Fallback for rg --files mode using find command.
+ */
+async function fallbackFindFiles(args: string[], cwd: string): Promise<string> {
+  // Extract glob pattern from args
+  let globPattern = "";
+  for (let i = 0; i < args.length; i++) {
+    if ((args[i] === "--glob" || args[i] === "-g") && i + 1 < args.length) {
+      globPattern = args[i + 1];
+    }
+  }
+
+  if (!globPattern) {
+    // No glob, list all files
+    const result = await execa("find", [".", "-type", "f"], { cwd, timeout: 30000 });
+    return result.stdout;
+  }
+
+  // Convert rg glob to find -name pattern
+  // e.g., "**/Authenticator*.java" -> "Authenticator*.java"
+  // e.g., "**/META-INF/services/*" -> find with -path
+  const findArgs: string[] = [".", "-type", "f"];
+
+  if (globPattern.includes("/")) {
+    // Use -path for patterns with directory separators
+    // Remove leading **/ if present
+    const pathPattern = globPattern.replace(/^\*\*\//, "*/");
+    findArgs.push("-path", `./${pathPattern}`);
+  } else {
+    // Simple filename pattern
+    const namePattern = globPattern.replace(/^\*\*\//, "");
+    findArgs.push("-name", namePattern);
+  }
+
+  try {
+    const result = await execa("find", findArgs, { cwd, timeout: 30000 });
+    // Sort output to match rg --sort path behavior
+    const files = result.stdout.trim().split("\n").filter(Boolean).sort();
+    return files.join("\n");
+  } catch (error: unknown) {
+    const e = error as { exitCode?: number };
+    if (e.exitCode === 1) return "";
+    throw error;
+  }
+}
+
+/**
  * Convert common ripgrep arguments to grep equivalents.
  */
 function convertRgArgsToGrep(args: string[]): string[] {
-  const grepArgs: string[] = ["-r", "-n"];
+  const grepArgs: string[] = ["-r", "-n", "-E"];
   let i = 0;
   while (i < args.length) {
     const arg = args[i];
     if (arg === "--type" || arg === "-t") {
-      // rg --type java -> grep --include="*.java"
       i++;
       const type = args[i];
-      if (type === "java") grepArgs.push('--include="*.java"');
-      else if (type === "xml") grepArgs.push('--include="*.xml"');
-      else grepArgs.push(`--include="*.${type}"`);
+      grepArgs.push(`--include=*.${type}`);
     } else if (arg === "--glob" || arg === "-g") {
       i++;
-      grepArgs.push(`--include="${args[i]}"`);
+      grepArgs.push(`--include=${args[i]}`);
     } else if (arg === "-l" || arg === "--files-with-matches") {
       grepArgs.push("-l");
     } else if (arg === "-i" || arg === "--ignore-case") {
       grepArgs.push("-i");
     } else if (arg === "-w" || arg === "--word-regexp") {
       grepArgs.push("-w");
-    } else if (arg === "--max-count") {
+    } else if (arg === "--max-count" || arg === "-m") {
       i++;
-      grepArgs.push(`-m ${args[i]}`);
-    } else if (arg === "-m") {
-      i++;
-      grepArgs.push(`-m ${args[i]}`);
+      grepArgs.push("-m", args[i]);
+    } else if (arg === "--sort" || arg === "--files") {
+      // Skip rg-specific flags with no grep equivalent
+      if (arg === "--sort") i++; // skip the sort value too
     } else if (!arg.startsWith("-")) {
-      grepArgs.push(arg);
+      // This is a pattern or path — convert rg regex to POSIX
+      grepArgs.push(convertRgRegexToPosix(arg));
     }
     i++;
   }
   return grepArgs;
+}
+
+/**
+ * Convert ripgrep regex syntax to POSIX Extended Regex for grep -E.
+ */
+function convertRgRegexToPosix(pattern: string): string {
+  return pattern
+    .replace(/\\s/g, "[[:space:]]")
+    .replace(/\\w/g, "[[:alnum:]_]")
+    .replace(/\\d/g, "[[:digit:]]");
 }
 
 /**

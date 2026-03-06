@@ -50,12 +50,12 @@ const TOPIC_HINTS: Record<string, { classes: string[]; interfaces: string[]; spi
  * Explain how a specific Keycloak feature or mechanism works by finding
  * and analyzing the relevant source files.
  */
-export async function explainImplementation(topic: string): Promise<string> {
+export async function explainImplementation(topic: string, version?: string): Promise<string> {
   if (!topic || topic.trim().length === 0) {
     return "Error: topic is required and cannot be empty.";
   }
 
-  const sourcePath = getSourcePath();
+  const sourcePath = getSourcePath(version);
   const normalizedTopic = topic.toLowerCase();
 
   // Find matching topic hints

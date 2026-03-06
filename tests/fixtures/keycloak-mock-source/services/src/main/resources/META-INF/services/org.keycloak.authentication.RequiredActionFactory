@@ -1,0 +1,2 @@
+org.keycloak.authentication.required.VerifyEmailFactory
+org.keycloak.authentication.required.UpdatePasswordFactory

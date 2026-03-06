@@ -4,12 +4,12 @@ import { getSourcePath, searchWithRg, relativePath, formatResults } from "../uti
  * Find all classes that implement a given interface or extend a given class.
  * Useful for discovering how Keycloak implements its own SPIs internally.
  */
-export async function findInterfaceImplementors(interfaceName: string): Promise<string> {
+export async function findInterfaceImplementors(interfaceName: string, version?: string): Promise<string> {
   if (!interfaceName || interfaceName.trim().length === 0) {
     return "Error: interfaceName is required and cannot be empty.";
   }
 
-  const sourcePath = getSourcePath();
+  const sourcePath = getSourcePath(version);
   const matches: string[] = [];
 
   // Search for "implements InterfaceName" and "extends InterfaceName"
