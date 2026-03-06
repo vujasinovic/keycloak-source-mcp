@@ -1,0 +1,11 @@
+2024-01-15 10:40:00,001 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-5) Authentication flow started for realm: test-realm
+2024-01-15 10:40:00,050 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-5) Executing authenticator: auth-cookie
+2024-01-15 10:40:00,060 DEBUG [org.keycloak.authentication.authenticators.browser.CookieAuthenticator] (executor-thread-5) No valid SSO cookie found, skipping cookie auth
+2024-01-15 10:40:00,100 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-5) Executing authenticator: identity-provider-redirector
+2024-01-15 10:40:00,110 DEBUG [org.keycloak.authentication.authenticators.browser.IdentityProviderAuthenticator] (executor-thread-5) No default identity provider configured, skipping
+2024-01-15 10:40:00,200 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-5) Executing authenticator: auth-username-password-form
+2024-01-15 10:40:01,500 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-5) Authenticator auth-username-password-form: SUCCESS
+2024-01-15 10:40:01,600 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-5) Executing authenticator: auth-otp-form
+2024-01-15 10:40:03,000 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-5) Authenticator auth-otp-form: SUCCESS
+2024-01-15 10:40:03,100 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-5) Authentication complete for user testuser in realm test-realm
+2024-01-15 10:40:03,200 INFO  [org.keycloak.events] (executor-thread-5) type=LOGIN, realmId=test-realm, clientId=my-app, userId=user123, ipAddress=127.0.0.1

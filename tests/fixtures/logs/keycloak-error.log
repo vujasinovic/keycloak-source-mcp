@@ -1,0 +1,13 @@
+2024-01-15 10:35:00,001 INFO  [org.keycloak.services] (executor-thread-3) KC-SERVICES0001: Processing request
+2024-01-15 10:35:00,100 WARN  [org.keycloak.events] (executor-thread-3) type=LOGIN_ERROR, realmId=master, clientId=my-app, error=invalid_user_credentials
+2024-01-15 10:35:01,000 ERROR [org.keycloak.services] (executor-thread-3) KC-SERVICES9999: Failed to process authentication
+org.keycloak.authentication.AuthenticationFlowException: Invalid credentials provided
+	at org.keycloak.authentication.AuthenticationProcessor.authenticateClient(AuthenticationProcessor.java:456)
+	at org.keycloak.authentication.AuthenticationProcessor.authenticateSession(AuthenticationProcessor.java:312)
+	at org.keycloak.protocol.oidc.endpoints.TokenEndpoint.processGrantRequest(TokenEndpoint.java:198)
+	at org.keycloak.protocol.oidc.endpoints.TokenEndpoint.processTokenRequest(TokenEndpoint.java:142)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+Caused by: javax.security.auth.login.LoginException: Login failed for user: testuser
+	at org.keycloak.credential.PasswordCredentialProvider.validate(PasswordCredentialProvider.java:89)
+	at org.keycloak.credential.CredentialInputValidator.isValid(CredentialInputValidator.java:55)
+2024-01-15 10:35:01,500 INFO  [org.keycloak.services] (executor-thread-3) Request processing continued

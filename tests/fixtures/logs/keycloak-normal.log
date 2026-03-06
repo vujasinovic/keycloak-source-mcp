@@ -1,0 +1,14 @@
+2024-01-15 10:30:00,001 INFO  [io.quarkus] (main) keycloak 26.0.1 on JVM (powered by Quarkus 3.8.1) started in 4.532s. Listening on: http://0.0.0.0:8080
+2024-01-15 10:30:00,002 INFO  [io.quarkus] (main) Profile dev activated. Live Coding activated.
+2024-01-15 10:30:00,003 INFO  [io.quarkus] (main) Installed features: [agroal, cdi, hibernate-orm, keycloak, narayana-jta, resteasy-reactive, smallrye-context-propagation, vertx]
+2024-01-15 10:30:05,100 INFO  [org.keycloak.services] (main) KC-SERVICES0001: Loading config from /opt/keycloak/conf/keycloak.conf
+2024-01-15 10:30:05,200 INFO  [org.keycloak.connections.jpa] (main) Database vendor: h2
+2024-01-15 10:30:05,300 INFO  [org.keycloak.services] (main) KC-SERVICES0050: Initializing master realm
+2024-01-15 10:30:06,000 INFO  [org.keycloak.services] (main) KC-SERVICES0009: Added user 'admin' to realm 'master'
+2024-01-15 10:30:10,500 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-1) Authentication session created: realm=master
+2024-01-15 10:30:10,600 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-1) Executing authenticator: auth-cookie
+2024-01-15 10:30:10,650 INFO  [org.keycloak.authentication.authenticators.browser.CookieAuthenticator] (executor-thread-1) Cookie authentication attempted - no valid cookie found
+2024-01-15 10:30:10,700 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-1) Executing authenticator: auth-username-password-form
+2024-01-15 10:30:11,200 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-1) Authenticator auth-username-password-form: SUCCESS
+2024-01-15 10:30:11,300 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-1) Authentication complete for user admin in realm master
+2024-01-15 10:30:11,400 INFO  [org.keycloak.events] (executor-thread-1) type=LOGIN, realmId=master, clientId=security-admin-console, userId=abc123, ipAddress=127.0.0.1

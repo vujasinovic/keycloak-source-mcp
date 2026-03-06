@@ -18,6 +18,12 @@ import { visualizeAuthFlow } from "./tools/visualize_auth_flow.js";
 import { checkSecurityAdvisories } from "./tools/check_security_advisories.js";
 import { listVersions } from "./tools/list_versions.js";
 import { compareAcrossVersions } from "./tools/compare_across_versions.js";
+import { connectDevInstance } from "./live-dev/tools/connect_dev_instance.js";
+import { getLoadedProviders } from "./live-dev/tools/get_loaded_providers.js";
+import { analyzeLogs } from "./live-dev/tools/analyze_logs.js";
+import { traceAuthenticationFlow } from "./live-dev/tools/trace_authentication_flow.js";
+import { validateSpiRegistration } from "./live-dev/tools/validate_spi_registration.js";
+import { getDevInstanceConfig } from "./live-dev/tools/get_dev_instance_config.js";
 import { getSourcePath } from "./utils.js";
 import { versionManager } from "./version-manager.js";
 
@@ -50,7 +56,7 @@ function validateEnvironment(): void {
 function printStartupBanner(): void {
   versionManager.initialize();
   const versions = versionManager.listVersions();
-  const toolCount = 15;
+  const toolCount = 21;
 
   console.error("");
   console.error("keycloak-source-mcp started");
@@ -274,6 +280,76 @@ async function main(): Promise<void> {
     },
     async ({ query, fromVersion, toVersion, mode }) => ({
       content: [{ type: "text", text: await compareAcrossVersions(query, fromVersion, toVersion, mode) }],
+    })
+  );
+
+  // ── Live Development Intelligence tools ──
+
+  server.tool(
+    "connect_dev_instance",
+    "Test connection to a running Keycloak dev instance. Returns status, version info, and detected custom providers.",
+    {},
+    async () => ({
+      content: [{ type: "text", text: await connectDevInstance() }],
+    })
+  );
+
+  server.tool(
+    "get_loaded_providers",
+    "List all SPI providers registered in the running Keycloak instance, correlated with source code.",
+    {
+      spiType: z.string().optional().describe('Filter by SPI type e.g. "authenticator", "required-action"'),
+      customOnly: z.boolean().optional().default(false).describe("Show only non-Keycloak-core providers"),
+    },
+    async ({ spiType, customOnly }) => ({
+      content: [{ type: "text", text: await getLoadedProviders(spiType, customOnly) }],
+    })
+  );
+
+  server.tool(
+    "analyze_logs",
+    "Read and analyze recent Keycloak logs. Detects errors, stack traces, and authentication flow steps.",
+    {
+      lines: z.number().optional().default(200).describe("Number of recent log lines to analyze (default: 200)"),
+      filter: z.string().optional().describe("Filter to specific class name or keyword"),
+      extractFlow: z.boolean().optional().default(true).describe("Attempt to extract authentication flow steps"),
+    },
+    async ({ lines, filter, extractFlow }) => ({
+      content: [{ type: "text", text: await analyzeLogs(lines, filter, extractFlow) }],
+    })
+  );
+
+  server.tool(
+    "trace_authentication_flow",
+    "Guide through triggering and tracing a Keycloak authentication flow with log analysis.",
+    {
+      realm: z.string().describe("Realm to trace authentication in"),
+      description: z.string().describe('Description of what to test, e.g. "browser login with OTP"'),
+    },
+    async ({ realm, description }) => ({
+      content: [{ type: "text", text: await traceAuthenticationFlow(realm, description) }],
+    })
+  );
+
+  server.tool(
+    "validate_spi_registration",
+    "Validate that custom SPI providers are correctly registered and configured. Detects common registration mistakes.",
+    {
+      customSourcePath: z.string().optional().describe("Path to custom extensions source (falls back to KEYCLOAK_SOURCE_PATH)"),
+    },
+    async ({ customSourcePath }) => ({
+      content: [{ type: "text", text: await validateSpiRegistration(customSourcePath) }],
+    })
+  );
+
+  server.tool(
+    "get_dev_instance_config",
+    "Get active configuration of the running Keycloak instance, focused on SPI-relevant settings.",
+    {
+      filter: z.string().optional().describe('Filter config keys by prefix e.g. "kc.spi", "quarkus.datasource"'),
+    },
+    async ({ filter }) => ({
+      content: [{ type: "text", text: await getDevInstanceConfig(filter) }],
     })
   );
 
