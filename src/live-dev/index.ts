@@ -57,3 +57,38 @@ export {
   type CorrelationReport,
   type SourceLocation,
 } from "./spi-correlator.js";
+
+export {
+  searchUser,
+  getUserCredentials,
+  getBruteForceStatus,
+  getLoginEvents,
+  getUserSessions,
+  extractBruteForcePolicy,
+  diagnoseUser,
+  formatDiagnosticReport,
+  type UserRepresentation,
+  type CredentialRepresentation,
+  type BruteForceStatus,
+  type LoginEvent,
+  type UserSession,
+  type DiagnosticReport,
+  type BruteForcePolicy,
+  type DiagnosticIssue,
+} from "./user-diagnostics.js";
+
+export {
+  captureLogSnapshot,
+  readNewLogEntries,
+  extractMethodSource,
+  resolveAuthenticatorSource,
+  diagnoseError,
+  buildAnnotatedSteps,
+  fetchExpectedFlow,
+  analyzeAuthFlow,
+  formatFlowDiagnosis,
+  type LogSnapshot,
+  type AnnotatedAuthStep,
+  type ErrorDiagnosis,
+  type FlowDiagnosis,
+} from "./flow-debugger.js";

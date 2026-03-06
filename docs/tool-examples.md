@@ -406,6 +406,91 @@ Prompt: "Check SPI registration in my extensions project"
 Tool call: validate_spi_registration("/projects/my-keycloak-extensions")
 ```
 
+### debug_auth_flow
+
+Real-time two-phase auth flow debugger. Captures a log snapshot, waits for you to trigger a flow, then produces a source-annotated trace showing what each authenticator did.
+
+Requires `KC_DEV_LOG_PATH`. `KC_DEV_URL` is optional (enriches output with realm config).
+
+**Phase 1 — Start (capture snapshot):**
+
+```
+Prompt: "Start debugging an auth flow in my test realm"
+Tool call: debug_auth_flow("start", "test-realm", "browser login with OTP")
+```
+
+Sample output:
+```
+Debug Auth Flow — Snapshot Captured
+============================================================
+Log file: /tmp/keycloak.log
+Current position: line 1542
+Captured at: 2024-01-15T10:39:00.000Z
+
+Now trigger your authentication flow:
+  Browser login: http://localhost:8080/realms/test-realm/account
+  Direct grant: curl -X POST http://localhost:8080/realms/test-realm/protocol/openid-connect/token ...
+
+Scenario: browser login with OTP
+
+After the flow completes, call debug_auth_flow with phase: "analyze"
+and pass the following snapshot:
+
+SNAPSHOT: {"logPath":"/tmp/keycloak.log","lineCount":1542,"takenAt":"2024-01-15T10:39:00.000Z"}
+```
+
+**Phase 2 — Analyze (produce annotated trace):**
+
+```
+Prompt: "Analyze the auth flow I just triggered"
+Tool call: debug_auth_flow("analyze", "test-realm", undefined, '{"logPath":"/tmp/keycloak.log","lineCount":1542,"takenAt":"2024-01-15T10:39:00.000Z"}')
+```
+
+Sample output:
+```
+Authentication Flow Debug Trace
+============================================================
+Realm: test-realm | New log lines analyzed: 12 | Duration: 3099ms
+Expected flow: browser
+
+-- Step 1: auth-cookie -- ATTEMPTED
+   Logger: org.keycloak.authentication.AuthenticationProcessor
+   Log: Executing authenticator: auth-cookie
+   Log: No valid SSO cookie found, skipping cookie auth
+   Source: CookieAuthenticator.java
+     authenticate(): Checks for AUTH_SESSION_ID cookie, attempts SSO
+
+-- Step 2: identity-provider-redirector -- ATTEMPTED
+   Logger: org.keycloak.authentication.AuthenticationProcessor
+   Log: Executing authenticator: identity-provider-redirector
+   Log: No default identity provider configured, skipping
+   Source: IdentityProviderAuthenticator.java
+
+-- Step 3: auth-username-password-form -- SUCCESS
+   Logger: org.keycloak.authentication.AuthenticationProcessor
+   Log: Executing authenticator: auth-username-password-form
+   Log: Authenticator auth-username-password-form: SUCCESS
+   Source: UsernamePasswordForm.java
+     authenticate(): Display the login form
+     action(): Validate the submitted credentials
+
+-- Step 4: auth-otp-form -- SUCCESS
+   Logger: org.keycloak.authentication.AuthenticationProcessor
+   Log: Authenticator auth-otp-form: SUCCESS
+
+-- Result: SUCCESS
+```
+
+```
+Prompt: "Start a debug session for a direct grant flow"
+Tool call: debug_auth_flow("start", "master", "direct grant with password")
+```
+
+```
+Prompt: "Debug the auth flow using Keycloak v24 source"
+Tool call: debug_auth_flow("analyze", "master", undefined, '{"logPath":"/tmp/kc.log","lineCount":100,"takenAt":"..."}', "v24")
+```
+
 ### get_dev_instance_config
 
 Inspect the active configuration of the running Keycloak instance, focused on SPI-relevant settings.
@@ -453,3 +538,11 @@ Tool call: get_dev_instance_config("quarkus.datasource")
 4. **Analyze logs for errors:** `analyze_logs(500)`
 5. **Trace a specific flow:** `trace_authentication_flow("my-realm", "browser login")`
 6. **Inspect config:** `get_dev_instance_config("kc.spi")`
+
+### Debugging a Specific Auth Flow (Step-by-Step)
+
+1. **Start the debug session:** `debug_auth_flow("start", "my-realm", "browser login with OTP")`
+2. **Trigger the flow** in your browser or via curl (follow the instructions in the output)
+3. **Analyze the results:** `debug_auth_flow("analyze", "my-realm", undefined, "<snapshot JSON from step 1>")`
+4. **If errors occurred**, the output includes an Error Diagnosis section with the exception, root cause, and source file reference
+5. **Read the throwing method source:** `get_class_source("services/src/.../AuthenticationProcessor.java")`

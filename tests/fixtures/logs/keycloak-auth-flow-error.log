@@ -1,0 +1,16 @@
+2024-01-15 10:50:00,001 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-7) Authentication flow started for realm: test-realm
+2024-01-15 10:50:00,050 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-7) Executing authenticator: auth-cookie
+2024-01-15 10:50:00,060 DEBUG [org.keycloak.authentication.authenticators.browser.CookieAuthenticator] (executor-thread-7) No valid SSO cookie found, skipping cookie auth
+2024-01-15 10:50:00,100 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-7) Executing authenticator: identity-provider-redirector
+2024-01-15 10:50:00,110 DEBUG [org.keycloak.authentication.authenticators.browser.IdentityProviderAuthenticator] (executor-thread-7) No default identity provider configured, skipping
+2024-01-15 10:50:00,200 INFO  [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-7) Executing authenticator: auth-username-password-form
+2024-01-15 10:50:01,500 ERROR [org.keycloak.authentication.AuthenticationProcessor] (executor-thread-7) Authentication failed for user baduser in realm test-realm
+org.keycloak.authentication.AuthenticationFlowException: Invalid user credentials
+	at org.keycloak.authentication.AuthenticationProcessor.authenticateClient(AuthenticationProcessor.java:456)
+	at org.keycloak.authentication.AuthenticationProcessor.authenticateSession(AuthenticationProcessor.java:312)
+	at org.keycloak.protocol.oidc.endpoints.TokenEndpoint.processGrantRequest(TokenEndpoint.java:198)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+Caused by: javax.security.auth.login.LoginException: Login failed for user: baduser
+	at org.keycloak.credential.PasswordCredentialProvider.validate(PasswordCredentialProvider.java:89)
+	at org.keycloak.credential.CredentialInputValidator.isValid(CredentialInputValidator.java:55)
+2024-01-15 10:50:01,600 WARN  [org.keycloak.events] (executor-thread-7) type=LOGIN_ERROR, realmId=test-realm, clientId=my-app, userId=baduser, error=invalid_user_credentials
