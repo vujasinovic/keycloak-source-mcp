@@ -1,0 +1,2 @@
+org.keycloak.authentication.authenticators.UsernamePasswordFormFactory
+org.keycloak.authentication.authenticators.OTPFormFactory

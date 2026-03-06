@@ -5,12 +5,12 @@ import { getSourcePath, searchWithRg, relativePath, formatResults } from "../uti
  * Supports partial names and wildcards. Returns file paths, package names,
  * and class declaration excerpts.
  */
-export async function searchClass(className: string): Promise<string> {
+export async function searchClass(className: string, version?: string): Promise<string> {
   if (!className || className.trim().length === 0) {
     return "Error: className is required and cannot be empty.";
   }
 
-  const sourcePath = getSourcePath();
+  const sourcePath = getSourcePath(version);
 
   // Search for .java files matching the class name
   const pattern = className.replace(/\*/g, ".*");

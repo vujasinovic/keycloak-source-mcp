@@ -6,8 +6,8 @@ import { getSourcePath, searchWithRg, relativePath } from "../utils.js";
  * Search and list SPI definitions in META-INF/services files.
  * Helps developers understand the extension points available in Keycloak.
  */
-export async function searchSpiDefinitions(filter?: string): Promise<string> {
-  const sourcePath = getSourcePath();
+export async function searchSpiDefinitions(filter?: string, version?: string): Promise<string> {
+  const sourcePath = getSourcePath(version);
 
   // Find all META-INF/services files
   const args = [

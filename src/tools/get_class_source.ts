@@ -1,27 +1,28 @@
 import * as fs from "node:fs";
-import { getSourcePath, searchWithRg, resolvePath, relativePath } from "../utils.js";
+import * as path from "node:path";
+import { getSourcePath, searchWithRg } from "../utils.js";
 
 /**
  * Get the full source code of a specific Java class.
  * If the file is not found at the given path, tries to search by filename automatically.
  */
-export async function getClassSource(filePath: string): Promise<string> {
+export async function getClassSource(filePath: string, version?: string): Promise<string> {
   if (!filePath || filePath.trim().length === 0) {
     return "Error: filePath is required and cannot be empty.";
   }
 
-  const resolved = resolvePath(filePath);
+  const sourcePath = getSourcePath(version);
+  const resolved = path.isAbsolute(filePath) ? filePath : path.join(sourcePath, filePath);
 
   // Try direct path first
   if (fs.existsSync(resolved)) {
     const content = await fs.promises.readFile(resolved, "utf-8");
-    const relPath = relativePath(resolved);
+    const relPath = path.relative(sourcePath, resolved);
     return `File: ${relPath}\n${"=".repeat(60)}\n\n${content}`;
   }
 
   // File not found — try searching by filename
   const filename = filePath.split("/").pop() || filePath;
-  const sourcePath = getSourcePath();
 
   const searchArgs = [
     "--files",
@@ -39,7 +40,7 @@ export async function getClassSource(filePath: string): Promise<string> {
 
       if (fs.existsSync(fullPath)) {
         const content = await fs.promises.readFile(fullPath, "utf-8");
-        const relPath = relativePath(fullPath);
+        const relPath = path.relative(sourcePath, fullPath);
 
         let header = `File: ${relPath}\n`;
         if (files.length > 1) {

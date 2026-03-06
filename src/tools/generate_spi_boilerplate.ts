@@ -56,14 +56,15 @@ export async function generateSpiBoilerplate(
   spiType: string,
   description: string,
   providerName: string,
-  packageName: string
+  packageName: string,
+  version?: string
 ): Promise<string> {
   if (!spiType || !spiType.trim()) return "Error: spiType is required.";
   if (!description || !description.trim()) return "Error: description is required.";
   if (!providerName || !providerName.trim()) return "Error: providerName is required.";
   if (!packageName || !packageName.trim()) return "Error: packageName is required.";
 
-  const sourcePath = getSourcePath();
+  const sourcePath = getSourcePath(version);
   const normalizedType = spiType.toLowerCase().replace(/[\s_-]/g, "");
 
   // Resolve the interface and factory names

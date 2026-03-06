@@ -24,13 +24,14 @@ const JAKARTA_PREFIXES = [
 export async function traceDependencies(
   className: string,
   direction: "upstream" | "downstream" | "both",
-  depth: number = 2
+  depth: number = 2,
+  version?: string
 ): Promise<string> {
   if (!className || !className.trim()) return "Error: className is required.";
   if (depth < 1) depth = 1;
   if (depth > 4) depth = 4;
 
-  const sourcePath = getSourcePath();
+  const sourcePath = getSourcePath(version);
 
   // Find the class file
   const classFile = await findClassFile(sourcePath, className);

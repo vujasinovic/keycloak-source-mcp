@@ -16,7 +16,15 @@ import { keycloakAdmin } from "./tools/keycloak_admin.js";
 import { upgradeAssistant } from "./tools/upgrade_assistant.js";
 import { visualizeAuthFlow } from "./tools/visualize_auth_flow.js";
 import { checkSecurityAdvisories } from "./tools/check_security_advisories.js";
+import { listVersions } from "./tools/list_versions.js";
+import { compareAcrossVersions } from "./tools/compare_across_versions.js";
 import { getSourcePath } from "./utils.js";
+import { versionManager } from "./version-manager.js";
+
+const versionParam = z
+  .string()
+  .optional()
+  .describe('Optional version name (e.g. "v24", "v26"). Uses default if omitted. See list_versions.');
 
 // Startup validation
 function validateEnvironment(): void {
@@ -39,337 +47,233 @@ function validateEnvironment(): void {
   }
 }
 
+function printStartupBanner(): void {
+  versionManager.initialize();
+  const versions = versionManager.listVersions();
+  const toolCount = 15;
+
+  console.error("");
+  console.error("keycloak-source-mcp started");
+  console.error("");
+  console.error("Registered versions:");
+  console.error(versionManager.getStartupSummary());
+  console.error("");
+  console.error(`Tools available: ${toolCount}`);
+  console.error("");
+}
+
 async function main(): Promise<void> {
   validateEnvironment();
+  printStartupBanner();
 
   const server = new McpServer({
     name: "keycloak-source-mcp",
     version: "1.0.0",
   });
 
-  /**
-   * Search for a Java class or interface by name in the Keycloak source.
-   * Supports partial names and wildcards.
-   */
   server.tool(
     "search_class",
-    "Search for a Java class or interface by name in the Keycloak source. Supports partial names and wildcards. Returns file paths, package names, and class declaration excerpts.",
+    "Search for a Java class or interface by name in the Keycloak source. Supports partial names and wildcards.",
     {
-      className: z
-        .string()
-        .describe("Class or interface name to search for (supports partial names and wildcards)"),
+      className: z.string().describe("Class or interface name to search for"),
+      version: versionParam,
     },
-    async ({ className }) => ({
-      content: [{ type: "text", text: await searchClass(className) }],
+    async ({ className, version }) => ({
+      content: [{ type: "text", text: await searchClass(className, version) }],
     })
   );
 
-  /**
-   * Get the full source code of a specific Java class.
-   */
   server.tool(
     "get_class_source",
-    "Get the full source code of a specific Java class. If the file is not found, it will try to search by filename automatically and return the best match.",
+    "Get the full source code of a specific Java class. Auto-discovers file if not found at the given path.",
     {
-      filePath: z
-        .string()
-        .describe("Relative or absolute path to the Java file, as returned by search_class"),
+      filePath: z.string().describe("Relative or absolute path to the Java file"),
+      version: versionParam,
     },
-    async ({ filePath }) => ({
-      content: [{ type: "text", text: await getClassSource(filePath) }],
+    async ({ filePath, version }) => ({
+      content: [{ type: "text", text: await getClassSource(filePath, version) }],
     })
   );
 
-  /**
-   * Find all classes that implement a given interface or extend a given class.
-   */
   server.tool(
     "find_interface_implementors",
-    "Find all classes that implement a given interface or extend a given class. Especially useful for discovering how Keycloak implements its SPIs internally.",
+    "Find all classes that implement a given interface or extend a given class.",
     {
-      interfaceName: z
-        .string()
-        .describe("Interface or class name to find implementors/subclasses of"),
+      interfaceName: z.string().describe("Interface or class name to find implementors of"),
+      version: versionParam,
     },
-    async ({ interfaceName }) => ({
-      content: [{ type: "text", text: await findInterfaceImplementors(interfaceName) }],
+    async ({ interfaceName, version }) => ({
+      content: [{ type: "text", text: await findInterfaceImplementors(interfaceName, version) }],
     })
   );
 
-  /**
-   * Search and list SPI definitions in META-INF/services files.
-   */
   server.tool(
     "search_spi_definitions",
-    "Search and list SPI definitions in META-INF/services files. Helps discover extension points available in Keycloak.",
+    "Search and list SPI definitions in META-INF/services files.",
     {
-      filter: z
-        .string()
-        .optional()
-        .describe("Optional filter by SPI name. Leave empty to list all SPI definitions."),
+      filter: z.string().optional().describe("Optional filter by SPI name"),
+      version: versionParam,
     },
-    async ({ filter }) => ({
-      content: [{ type: "text", text: await searchSpiDefinitions(filter) }],
+    async ({ filter, version }) => ({
+      content: [{ type: "text", text: await searchSpiDefinitions(filter, version) }],
     })
   );
 
-  /**
-   * Full-text search across the entire Keycloak source code.
-   */
   server.tool(
     "grep_source",
-    "Full-text search across the entire Keycloak source code. Uses ripgrep for fast search with regex support.",
+    "Full-text search across the Keycloak source code. Uses ripgrep with regex support.",
     {
-      query: z
-        .string()
-        .describe("Search query (supports regex patterns)"),
-      filePattern: z
-        .string()
-        .optional()
-        .describe("Optional glob pattern to filter files (e.g. '*.java', '*.xml')"),
-      maxResults: z
-        .number()
-        .optional()
-        .default(30)
-        .describe("Maximum number of results to return (default: 30, max: 100)"),
+      query: z.string().describe("Search query (supports regex)"),
+      filePattern: z.string().optional().describe("Glob pattern to filter files"),
+      maxResults: z.number().optional().default(30).describe("Max results (default: 30, max: 100)"),
+      version: versionParam,
     },
-    async ({ query, filePattern, maxResults }) => ({
-      content: [{ type: "text", text: await grepSource(query, filePattern, maxResults) }],
+    async ({ query, filePattern, maxResults, version }) => ({
+      content: [{ type: "text", text: await grepSource(query, filePattern, maxResults, version) }],
     })
   );
 
-  /**
-   * Explain how a specific Keycloak feature or mechanism works.
-   */
   server.tool(
     "explain_implementation",
-    "Explain how a specific Keycloak feature or mechanism works by finding and analyzing relevant source files. Returns key classes, main interfaces, default implementations, and SPI extension points.",
+    "Explain how a Keycloak feature works by finding relevant source files, interfaces, implementations, and SPIs.",
     {
-      topic: z
-        .string()
-        .describe(
-          'Topic to explain (e.g. "authentication flow", "token refresh", "user federation", "required action", "event listener", "theme", "protocol mapper", "credential")'
-        ),
+      topic: z.string().describe('Topic (e.g. "authentication flow", "token refresh", "user federation")'),
+      version: versionParam,
     },
-    async ({ topic }) => ({
-      content: [{ type: "text", text: await explainImplementation(topic) }],
+    async ({ topic, version }) => ({
+      content: [{ type: "text", text: await explainImplementation(topic, version) }],
     })
   );
 
-  /**
-   * Generate a ready-to-use Java SPI implementation skeleton.
-   */
   server.tool(
     "generate_spi_boilerplate",
-    "Generate a ready-to-use Java SPI implementation skeleton based on a description. Produces Provider class, Factory class, META-INF/services entry, and pom.xml dependencies.",
+    "Generate a Java SPI implementation skeleton. Produces Provider, Factory, META-INF/services, and pom.xml.",
     {
-      spiType: z
-        .string()
-        .describe(
-          'SPI type (e.g. "Authenticator", "RequiredActionProvider", "EventListenerProvider", "TokenMapper", "UserStorageProvider")'
-        ),
-      description: z
-        .string()
-        .describe("Plain English description of what the customization should do"),
-      providerName: z
-        .string()
-        .describe('Desired provider class name prefix (e.g. "SmsSender")'),
-      packageName: z
-        .string()
-        .describe('Target Java package (e.g. "com.mycompany.keycloak")'),
+      spiType: z.string().describe('SPI type (e.g. "Authenticator", "RequiredActionProvider")'),
+      description: z.string().describe("What the customization should do"),
+      providerName: z.string().describe('Class name prefix (e.g. "SmsSender")'),
+      packageName: z.string().describe('Java package (e.g. "com.mycompany.keycloak")'),
+      version: versionParam,
     },
-    async ({ spiType, description, providerName, packageName }) => ({
-      content: [
-        {
-          type: "text",
-          text: await generateSpiBoilerplate(spiType, description, providerName, packageName),
-        },
-      ],
+    async ({ spiType, description, providerName, packageName, version }) => ({
+      content: [{ type: "text", text: await generateSpiBoilerplate(spiType, description, providerName, packageName, version) }],
     })
   );
 
-  /**
-   * Detect breaking changes between Keycloak versions.
-   */
   server.tool(
     "detect_breaking_changes",
-    "Compare Keycloak SPI interfaces between two versions to detect breaking changes. Categorizes changes as BREAKING or NON-BREAKING.",
+    "Compare Keycloak SPI interfaces between two versions to detect breaking changes.",
     {
-      fromVersion: z.string().describe("Source Keycloak version (e.g. '24.0.0')"),
-      toVersion: z.string().describe("Target Keycloak version (e.g. '26.0.0')"),
-      interfaceNames: z
-        .array(z.string())
-        .optional()
-        .describe(
-          "Specific interfaces to check. If empty, scans all commonly customized SPIs."
-        ),
-      sourcePathV1: z
-        .string()
-        .optional()
-        .describe("Path to older version source. Falls back to KEYCLOAK_SOURCE_PATH."),
-      sourcePathV2: z
-        .string()
-        .optional()
-        .describe("Path to newer version source. Falls back to KEYCLOAK_SOURCE_PATH."),
+      fromVersion: z.string().describe("Source version (e.g. '24.0.0' or registered name like 'v24')"),
+      toVersion: z.string().describe("Target version (e.g. '26.0.0' or registered name like 'v26')"),
+      interfaceNames: z.array(z.string()).optional().describe("Specific interfaces to check"),
+      sourcePathV1: z.string().optional().describe("Explicit path to older source"),
+      sourcePathV2: z.string().optional().describe("Explicit path to newer source"),
     },
-    async ({ fromVersion, toVersion, interfaceNames, sourcePathV1, sourcePathV2 }) => ({
-      content: [
-        {
+    async ({ fromVersion, toVersion, interfaceNames, sourcePathV1, sourcePathV2 }) => {
+      // Try to resolve version names from VersionManager
+      let v1Path = sourcePathV1;
+      let v2Path = sourcePathV2;
+      if (!v1Path) {
+        try { v1Path = versionManager.resolve(fromVersion); } catch { /* fall through */ }
+      }
+      if (!v2Path) {
+        try { v2Path = versionManager.resolve(toVersion); } catch { /* fall through */ }
+      }
+      return {
+        content: [{
           type: "text",
-          text: await detectBreakingChanges(
-            fromVersion,
-            toVersion,
-            interfaceNames,
-            sourcePathV1,
-            sourcePathV2
-          ),
-        },
-      ],
-    })
+          text: await detectBreakingChanges(fromVersion, toVersion, interfaceNames, v1Path, v2Path),
+        }],
+      };
+    }
   );
 
-  /**
-   * Trace class dependencies upstream and downstream.
-   */
   server.tool(
     "trace_dependencies",
-    "Trace what a Keycloak class depends on (upstream) and what depends on it (downstream). Shows a dependency tree with Keycloak internal, JDK, Jakarta EE, and external classifications.",
+    "Trace what a Keycloak class depends on and what depends on it.",
     {
-      className: z.string().describe("Class or interface name to trace"),
-      direction: z
-        .enum(["upstream", "downstream", "both"])
-        .describe("upstream = what it depends on, downstream = what depends on it"),
-      depth: z
-        .number()
-        .optional()
-        .default(2)
-        .describe("How many levels deep to trace (default: 2, max: 4)"),
+      className: z.string().describe("Class or interface name"),
+      direction: z.enum(["upstream", "downstream", "both"]).describe("Trace direction"),
+      depth: z.number().optional().default(2).describe("Depth (default: 2, max: 4)"),
+      version: versionParam,
     },
-    async ({ className, direction, depth }) => ({
-      content: [
-        {
-          type: "text",
-          text: await traceDependencies(className, direction, depth),
-        },
-      ],
+    async ({ className, direction, depth, version }) => ({
+      content: [{ type: "text", text: await traceDependencies(className, direction, depth, version) }],
     })
   );
 
-  /**
-   * Query a running Keycloak instance via Admin REST API.
-   */
   server.tool(
     "keycloak_admin",
-    "Connect to a running Keycloak instance and perform admin queries. Requires KEYCLOAK_ADMIN_URL, KEYCLOAK_ADMIN_USERNAME, KEYCLOAK_ADMIN_PASSWORD env vars.",
+    "Connect to a running Keycloak instance and perform admin queries.",
     {
-      action: z
-        .string()
-        .describe(
-          'Action to perform: "list_realms", "list_flows", "list_clients", "list_providers", "get_realm_settings"'
-        ),
-      realm: z
-        .string()
-        .optional()
-        .describe('Realm name (default: "master"). Required for list_flows, list_clients, get_realm_settings.'),
+      action: z.string().describe('Action: "list_realms", "list_flows", "list_clients", "list_providers", "get_realm_settings"'),
+      realm: z.string().optional().describe('Realm name (default: "master")'),
     },
     async ({ action, realm }) => ({
-      content: [
-        {
-          type: "text",
-          text: await keycloakAdmin(action, realm),
-        },
-      ],
+      content: [{ type: "text", text: await keycloakAdmin(action, realm) }],
     })
   );
 
-  /**
-   * Analyze custom SPI implementations for upgrade compatibility.
-   */
   server.tool(
     "upgrade_assistant",
-    "Analyze a developer's custom Keycloak SPI implementations and detect compatibility issues for a target Keycloak version. Produces an actionable upgrade report.",
+    "Analyze custom Keycloak SPI implementations for upgrade compatibility.",
     {
-      customSourcePath: z
-        .string()
-        .describe("Path to the developer's custom Keycloak extensions source code"),
-      targetKeycloakVersion: z
-        .string()
-        .describe("The Keycloak version to upgrade to"),
-      currentKeycloakSourcePath: z
-        .string()
-        .optional()
-        .describe("Path to the target Keycloak version source. Falls back to KEYCLOAK_SOURCE_PATH."),
+      customSourcePath: z.string().describe("Path to custom extensions source"),
+      targetKeycloakVersion: z.string().describe("Target Keycloak version"),
+      currentKeycloakSourcePath: z.string().optional().describe("Path to target version source"),
     },
     async ({ customSourcePath, targetKeycloakVersion, currentKeycloakSourcePath }) => ({
-      content: [
-        {
-          type: "text",
-          text: await upgradeAssistant(
-            customSourcePath,
-            targetKeycloakVersion,
-            currentKeycloakSourcePath
-          ),
-        },
-      ],
+      content: [{ type: "text", text: await upgradeAssistant(customSourcePath, targetKeycloakVersion, currentKeycloakSourcePath) }],
     })
   );
 
-  /**
-   * Visualize authentication flows as Mermaid diagrams.
-   */
   server.tool(
     "visualize_auth_flow",
-    "Visualize a Keycloak authentication flow as a Mermaid flowchart diagram. Can parse a realm JSON export or generate from a plain English description.",
+    "Visualize a Keycloak authentication flow as a Mermaid diagram.",
     {
-      source: z
-        .enum(["realm_export", "description"])
-        .describe("Source type: 'realm_export' to parse a JSON file, 'description' to generate from text"),
-      realmExportPath: z
-        .string()
-        .optional()
-        .describe("Path to a Keycloak realm JSON export file (required if source is 'realm_export')"),
-      flowName: z
-        .string()
-        .optional()
-        .describe("Specific flow to visualize (default: 'browser')"),
-      description: z
-        .string()
-        .optional()
-        .describe("Plain English description of the flow (required if source is 'description')"),
+      source: z.enum(["realm_export", "description"]).describe("Source type"),
+      realmExportPath: z.string().optional().describe("Path to realm JSON export"),
+      flowName: z.string().optional().describe("Flow to visualize (default: 'browser')"),
+      description: z.string().optional().describe("Plain English flow description"),
     },
     async ({ source, realmExportPath, flowName, description }) => ({
-      content: [
-        {
-          type: "text",
-          text: await visualizeAuthFlow(source, realmExportPath, flowName, description),
-        },
-      ],
+      content: [{ type: "text", text: await visualizeAuthFlow(source, realmExportPath, flowName, description) }],
     })
   );
 
-  /**
-   * Check security advisories for a Keycloak version.
-   */
   server.tool(
     "check_security_advisories",
-    "Check Keycloak's GitHub security advisories for known CVEs affecting a specific version. Fetches live data from GitHub.",
+    "Check Keycloak GitHub security advisories for CVEs affecting a version.",
     {
-      keycloakVersion: z
-        .string()
-        .describe("Keycloak version to check (e.g. '24.0.3')"),
-      severity: z
-        .enum(["all", "critical", "high", "medium", "low"])
-        .optional()
-        .default("all")
-        .describe("Filter by severity (default: 'all')"),
+      keycloakVersion: z.string().describe("Keycloak version (e.g. '24.0.3')"),
+      severity: z.enum(["all", "critical", "high", "medium", "low"]).optional().default("all").describe("Severity filter"),
     },
     async ({ keycloakVersion, severity }) => ({
-      content: [
-        {
-          type: "text",
-          text: await checkSecurityAdvisories(keycloakVersion, severity),
-        },
-      ],
+      content: [{ type: "text", text: await checkSecurityAdvisories(keycloakVersion, severity) }],
+    })
+  );
+
+  server.tool(
+    "list_versions",
+    "List all registered Keycloak source versions.",
+    {},
+    async () => ({
+      content: [{ type: "text", text: listVersions() }],
+    })
+  );
+
+  server.tool(
+    "compare_across_versions",
+    "Compare a class or interface across two registered Keycloak versions. Shows added/removed/changed methods.",
+    {
+      query: z.string().describe("Class or interface name to compare"),
+      fromVersion: z.string().describe('Source version name (e.g. "v24")'),
+      toVersion: z.string().describe('Target version name (e.g. "v26")'),
+      mode: z.enum(["diff", "side_by_side"]).optional().default("diff").describe("Output mode"),
+    },
+    async ({ query, fromVersion, toVersion, mode }) => ({
+      content: [{ type: "text", text: await compareAcrossVersions(query, fromVersion, toVersion, mode) }],
     })
   );
 

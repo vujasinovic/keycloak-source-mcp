@@ -7,7 +7,8 @@ import { getSourcePath, searchWithRg, formatResults } from "../utils.js";
 export async function grepSource(
   query: string,
   filePattern?: string,
-  maxResults: number = 30
+  maxResults: number = 30,
+  version?: string
 ): Promise<string> {
   if (!query || query.trim().length === 0) {
     return "Error: query is required and cannot be empty.";
@@ -16,7 +17,7 @@ export async function grepSource(
   if (maxResults < 1) maxResults = 1;
   if (maxResults > 100) maxResults = 100;
 
-  const sourcePath = getSourcePath();
+  const sourcePath = getSourcePath(version);
 
   const args: string[] = ["-n"];
 
