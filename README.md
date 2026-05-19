@@ -57,18 +57,7 @@ export KEYCLOAK_SOURCE_PATH=/path/to/keycloak
 
 ## Tools
 
-### search_class
-
-Search for a Java class or interface by name.
-
-```
-> search_class("AuthenticationProcessor")
-
-Search results for class: "AuthenticationProcessor"
-  services/src/main/java/org/keycloak/authentication/AuthenticationProcessor.java
-    Package: org.keycloak.authentication
-    public class AuthenticationProcessor {
-```
+The MCP server registers 19 tools. The primary entry point for most questions is `explain_implementation` — the rest are more targeted operations you'll typically reach for once you know what you're looking at.
 
 ### get_class_source
 
@@ -216,15 +205,22 @@ Full Source
 
 ## Advanced Tools
 
-### detect_breaking_changes
+### compare_versions
 
-Compare Keycloak SPI interfaces between two source versions to detect breaking changes.
+Compare Keycloak source across two registered versions. One tool with two modes:
 
-- **Inputs:** `fromVersion`, `toVersion`, optionally `interfaceNames`, `sourcePathV1`, `sourcePathV2`
-- **Example prompt:** *"What SPI interfaces changed between Keycloak 24 and 26 that would affect my custom Authenticator?"*
+- **`target: "class"`** (default) — diff a specific class or interface. Shows added/removed/changed methods, package or hierarchy moves, import diffs.
+- **`target: "spi_scan"`** — scan well-known SPI interfaces (or a custom list) for breaking changes, with each change labeled BREAKING or NON-BREAKING.
+
+**Inputs:** `fromVersion`, `toVersion`, `target`, plus `query` (class mode) or `interfaces` (spi_scan mode).
+
+**Example prompts:**
+- *"Compare `AuthenticationProcessor` between v24 and v26."*
+- *"What SPI interfaces changed between Keycloak 24 and 26 that would affect my custom Authenticator?"*
 
 ```
-> detect_breaking_changes("24.0.0", "26.0.0", ["Authenticator", "AuthenticatorFactory"])
+> compare_versions(fromVersion="v24", toVersion="v26", query="Authenticator")
+> compare_versions(fromVersion="v24", toVersion="v26", target="spi_scan", interfaces=["Authenticator", "AuthenticatorFactory"])
 ```
 
 ### trace_dependencies
@@ -317,9 +313,10 @@ Then ask: *"Use connect_dev_instance to check my Keycloak setup"*
 | `connect_dev_instance` | Test connection, show version info and custom providers |
 | `get_loaded_providers` | List all runtime SPI providers with source correlation |
 | `analyze_logs` | Parse and analyze Keycloak log entries |
-| `trace_authentication_flow` | Guide through tracing an auth flow |
+| `trace_authentication_flow` | Guide through tracing an auth flow with log analysis |
 | `validate_spi_registration` | Check custom SPI setup for common mistakes |
 | `get_dev_instance_config` | Show active configuration filtered by prefix |
+| `diagnose_user` | Investigate why a user cannot log in — searches by name/email/username and checks account status, credentials, brute-force lockout, recent events, and sessions |
 
 ### Example Development Loop
 
