@@ -192,6 +192,22 @@ Registered Keycloak Source Versions
   v26  /Users/dev/keycloak-26
 ```
 
+### add_version_from_branch
+
+Create a git worktree of a Keycloak release branch and register it as a named version. Lets you run multiple Keycloak versions from a single clone — no re-cloning, shared `.git`. The new version is usable in subsequent tool calls immediately; add a matching `KEYCLOAK_SOURCE_V*` env var to persist across MCP restarts.
+
+```
+Prompt: "Set up Keycloak 24.0 as a new version from the release branch"
+Tool call: add_version_from_branch(versionName="v24", branch="release/24.0")
+```
+
+```
+Prompt: "Add v26 from a specific clone and put the worktree at /tmp/kc-26"
+Tool call: add_version_from_branch(versionName="v26", branch="release/26.0", baseRepoPath="/Users/me/src/keycloak", worktreePath="/tmp/kc-26")
+```
+
+If `baseRepoPath` is omitted, `KEYCLOAK_SOURCE_PATH` is used. If `worktreePath` is omitted, the worktree is created as a sibling of `baseRepoPath` named `<repoName>-<versionName>`.
+
 ### compare_versions
 
 Unified version comparison. Two modes:

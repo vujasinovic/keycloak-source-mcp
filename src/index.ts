@@ -14,6 +14,7 @@ import { upgradeAssistant } from "./tools/upgrade_assistant.js";
 import { visualizeAuthFlow } from "./tools/visualize_auth_flow.js";
 import { checkSecurityAdvisories } from "./tools/check_security_advisories.js";
 import { listVersions } from "./tools/list_versions.js";
+import { addVersionFromBranch } from "./tools/add_version_from_branch.js";
 import { compareAcrossVersions, scanBreakingChanges } from "./tools/compare_across_versions.js";
 import { connectDevInstance } from "./live-dev/tools/connect_dev_instance.js";
 import { getLoadedProviders } from "./live-dev/tools/get_loaded_providers.js";
@@ -230,6 +231,20 @@ async function main(): Promise<void> {
     "List all registered Keycloak source versions.",
     {},
     () => listVersions(),
+  );
+
+  textTool(server, "add_version_from_branch",
+    "Create a git worktree of a Keycloak release branch and register it as a named version. " +
+    "Lets you juggle multiple versions from a single clone (shared .git) without re-cloning. " +
+    "Example: add_version_from_branch(versionName='v26', branch='release/26.0').",
+    {
+      versionName: z.string().describe("Name to register the version under (e.g. 'v26')"),
+      branch: z.string().describe("Branch ref in the base repo (e.g. 'release/26.0')"),
+      baseRepoPath: z.string().optional().describe("Path to the main Keycloak clone. Defaults to KEYCLOAK_SOURCE_PATH."),
+      worktreePath: z.string().optional().describe("Where to create the worktree. Defaults to sibling of baseRepoPath."),
+    },
+    ({ versionName, branch, baseRepoPath, worktreePath }) =>
+      addVersionFromBranch(versionName, branch, baseRepoPath, worktreePath),
   );
 
   // ── Live Development Intelligence Tools ──

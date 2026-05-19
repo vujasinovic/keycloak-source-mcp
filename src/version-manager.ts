@@ -120,6 +120,21 @@ class VersionManagerImpl {
   }
 
   /**
+   * Register a version at runtime. Used by add_version_from_branch
+   * so newly-created worktrees become immediately usable without restart.
+   */
+  register(name: string, path: string): RegisteredVersion {
+    this.initialize();
+    const entry: RegisteredVersion = {
+      name,
+      path,
+      exists: fs.existsSync(path),
+    };
+    this.versions.set(name, entry);
+    return entry;
+  }
+
+  /**
    * Reset for testing.
    */
   _reset(): void {
