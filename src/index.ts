@@ -3,27 +3,24 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { searchClass } from "./tools/search_class.js";
 import { getClassSource } from "./tools/get_class_source.js";
 import { findInterfaceImplementors } from "./tools/find_interface_implementors.js";
 import { searchSpiDefinitions } from "./tools/search_spi_definitions.js";
 import { grepSource } from "./tools/grep_source.js";
 import { explainImplementation } from "./tools/explain_implementation.js";
-import { detectBreakingChanges } from "./tools/detect_breaking_changes.js";
 import { traceDependencies } from "./tools/trace_dependencies.js";
 import { keycloakAdmin } from "./tools/keycloak_admin.js";
 import { upgradeAssistant } from "./tools/upgrade_assistant.js";
 import { visualizeAuthFlow } from "./tools/visualize_auth_flow.js";
 import { checkSecurityAdvisories } from "./tools/check_security_advisories.js";
 import { listVersions } from "./tools/list_versions.js";
-import { compareAcrossVersions } from "./tools/compare_across_versions.js";
+import { compareAcrossVersions, scanBreakingChanges } from "./tools/compare_across_versions.js";
 import { connectDevInstance } from "./live-dev/tools/connect_dev_instance.js";
 import { getLoadedProviders } from "./live-dev/tools/get_loaded_providers.js";
 import { analyzeLogs } from "./live-dev/tools/analyze_logs.js";
 import { traceAuthenticationFlow } from "./live-dev/tools/trace_authentication_flow.js";
 import { validateSpiRegistration } from "./live-dev/tools/validate_spi_registration.js";
 import { getDevInstanceConfig } from "./live-dev/tools/get_dev_instance_config.js";
-import { debugAuthFlow } from "./live-dev/tools/debug_auth_flow.js";
 import { diagnoseUserTool } from "./live-dev/tools/diagnose_user.js";
 import { getSourcePath } from "./utils.js";
 import { versionManager } from "./version-manager.js";
@@ -99,15 +96,6 @@ async function main(): Promise<void> {
 
   // ── Source Analysis Tools ──
 
-  textTool(server, "search_class",
-    "Search for a Java class or interface by name in the Keycloak source. Supports partial names and wildcards.",
-    {
-      className: z.string().describe("Class or interface name to search for"),
-      version: versionParam,
-    },
-    ({ className, version }) => searchClass(className, version),
-  );
-
   textTool(server, "get_class_source",
     "Get the full source code of a specific Java class. Auto-discovers file if not found at the given path.",
     {
@@ -157,30 +145,29 @@ async function main(): Promise<void> {
     ({ topic, version }) => explainImplementation(topic, version),
   );
 
-  // ── Version Comparison Tools ──
+  // ── Version Comparison ──
 
-  textTool(server, "detect_breaking_changes",
-    "Compare Keycloak SPI interfaces between two versions to detect breaking changes.",
+  textTool(server, "compare_versions",
+    "Compare Keycloak source across two versions. " +
+    "Use target='class' (default) with `query` to diff a specific class or interface. " +
+    "Use target='spi_scan' to scan well-known SPI interfaces (or a custom list) for breaking changes.",
     {
-      fromVersion: z.string().describe("Source version (e.g. '24.0.0' or registered name like 'v24')"),
-      toVersion: z.string().describe("Target version (e.g. '26.0.0' or registered name like 'v26')"),
-      interfaceNames: z.array(z.string()).optional().describe("Specific interfaces to check"),
-      sourcePathV1: z.string().optional().describe("Explicit path to older source"),
-      sourcePathV2: z.string().optional().describe("Explicit path to newer source"),
+      fromVersion: z.string().describe('Source version (e.g. "v24")'),
+      toVersion: z.string().describe('Target version (e.g. "v26")'),
+      target: z.enum(["class", "spi_scan"]).optional().default("class").describe("What to compare"),
+      query: z.string().optional().describe("Class/interface name (required when target='class')"),
+      mode: z.enum(["diff", "side_by_side"]).optional().default("diff").describe("Output mode for class compare"),
+      interfaces: z.array(z.string()).optional().describe("SPI interfaces to scan (target='spi_scan' only)"),
+      sourcePathV1: z.string().optional().describe("Explicit override for source v1 path (spi_scan only)"),
+      sourcePathV2: z.string().optional().describe("Explicit override for source v2 path (spi_scan only)"),
     },
-    ({ fromVersion, toVersion, interfaceNames, sourcePathV1, sourcePathV2 }) =>
-      detectBreakingChanges(fromVersion, toVersion, interfaceNames, sourcePathV1, sourcePathV2),
-  );
-
-  textTool(server, "compare_across_versions",
-    "Compare a class or interface across two registered Keycloak versions. Shows added/removed/changed methods.",
-    {
-      query: z.string().describe("Class or interface name to compare"),
-      fromVersion: z.string().describe('Source version name (e.g. "v24")'),
-      toVersion: z.string().describe('Target version name (e.g. "v26")'),
-      mode: z.enum(["diff", "side_by_side"]).optional().default("diff").describe("Output mode"),
+    ({ fromVersion, toVersion, target, query, mode, interfaces, sourcePathV1, sourcePathV2 }) => {
+      if (target === "spi_scan") {
+        return scanBreakingChanges(fromVersion, toVersion, interfaces, sourcePathV1, sourcePathV2);
+      }
+      if (!query) return "Error: `query` is required when target='class'.";
+      return compareAcrossVersions(query, fromVersion, toVersion, mode);
     },
-    ({ query, fromVersion, toVersion, mode }) => compareAcrossVersions(query, fromVersion, toVersion, mode),
   );
 
   // ── Dependency & Architecture Tools ──
@@ -295,19 +282,6 @@ async function main(): Promise<void> {
       filter: z.string().optional().describe('Filter config keys by prefix e.g. "kc.spi", "quarkus.datasource"'),
     },
     ({ filter }) => getDevInstanceConfig(filter),
-  );
-
-  textTool(server, "debug_auth_flow",
-    "Real-time auth flow debugger. Phase 'start' captures a log snapshot; phase 'analyze' reads new log entries and produces a source-annotated trace.",
-    {
-      phase: z.enum(["start", "analyze"]).describe("Phase: 'start' to capture snapshot, 'analyze' to produce trace"),
-      realm: z.string().optional().default("master").describe("Realm name (default: master)"),
-      description: z.string().optional().describe("Description of the flow being tested"),
-      snapshot: z.string().optional().describe("JSON snapshot string from the start phase"),
-      version: versionParam,
-    },
-    ({ phase, realm, description, snapshot, version }) =>
-      debugAuthFlow(phase, realm, description, snapshot, version),
   );
 
   textTool(server, "diagnose_user",

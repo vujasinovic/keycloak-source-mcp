@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { versionManager } from "../src/version-manager.js";
 import { listVersions } from "../src/tools/list_versions.js";
-import { compareAcrossVersions } from "../src/tools/compare_across_versions.js";
-import { searchClass } from "../src/tools/search_class.js";
+import { compareAcrossVersions, scanBreakingChanges } from "../src/tools/compare_across_versions.js";
 import { getClassSource } from "../src/tools/get_class_source.js";
 import { setupMultiVersionEnv, cleanupEnv, MOCK_SOURCE_PATH, MOCK_SOURCE_V2_PATH } from "./test-utils.js";
 
@@ -59,16 +58,6 @@ describe("existing tools with version parameter", () => {
   beforeEach(setupMultiVersionEnv);
   afterEach(cleanupEnv);
 
-  it("search_class uses version parameter when provided", async () => {
-    const result = await searchClass("Authenticator", "vv2");
-    expect(result).toContain("Authenticator.java");
-  });
-
-  it("search_class falls back to default when version not provided", async () => {
-    const result = await searchClass("Authenticator");
-    expect(result).toContain("Authenticator.java");
-  });
-
   it("get_class_source uses version parameter", async () => {
     const result = await getClassSource("Authenticator.java", "vv2");
     expect(result).toContain("supportsCredentialType");
@@ -119,6 +108,13 @@ describe("compare_across_versions", () => {
 
   it("shows summary of changes", async () => {
     const result = await compareAcrossVersions("Authenticator", "vtest", "vv2");
+    expect(result).toContain("Summary:");
+  });
+
+  it("scanBreakingChanges scans known SPIs across versions", async () => {
+    const result = await scanBreakingChanges("vtest", "vv2", ["Authenticator", "RequiredActionProvider"]);
+    expect(result).toContain("Breaking Changes Report");
+    expect(result).toContain("Authenticator");
     expect(result).toContain("Summary:");
   });
 });
