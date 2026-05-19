@@ -28,12 +28,33 @@ import { diagnoseUserTool } from "./live-dev/tools/diagnose_user.js";
 import { getSourcePath } from "./utils.js";
 import { versionManager } from "./version-manager.js";
 
+// ── Shared parameter schemas ──
+
 const versionParam = z
   .string()
   .optional()
   .describe('Optional version name (e.g. "v24", "v26"). Uses default if omitted. See list_versions.');
 
-// Startup validation
+// ── Registration helper — eliminates per-tool boilerplate ──
+
+let toolCount = 0;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function textTool(
+  server: McpServer,
+  name: string,
+  description: string,
+  schema: Record<string, z.ZodTypeAny>,
+  handler: (args: any) => Promise<string> | string,
+): void {
+  toolCount++;
+  server.tool(name, description, schema, async (args) => ({
+    content: [{ type: "text", text: await handler(args) }],
+  }));
+}
+
+// ── Startup ──
+
 function validateEnvironment(): void {
   try {
     getSourcePath();
@@ -55,10 +76,6 @@ function validateEnvironment(): void {
 }
 
 function printStartupBanner(): void {
-  versionManager.initialize();
-  const versions = versionManager.listVersions();
-  const toolCount = 23;
-
   console.error("");
   console.error("keycloak-source-mcp started");
   console.error("");
@@ -69,65 +86,56 @@ function printStartupBanner(): void {
   console.error("");
 }
 
+// ── Main ──
+
 async function main(): Promise<void> {
   validateEnvironment();
-  printStartupBanner();
+  versionManager.initialize();
 
   const server = new McpServer({
     name: "keycloak-source-mcp",
     version: "1.0.0",
   });
 
-  server.tool(
-    "search_class",
+  // ── Source Analysis Tools ──
+
+  textTool(server, "search_class",
     "Search for a Java class or interface by name in the Keycloak source. Supports partial names and wildcards.",
     {
       className: z.string().describe("Class or interface name to search for"),
       version: versionParam,
     },
-    async ({ className, version }) => ({
-      content: [{ type: "text", text: await searchClass(className, version) }],
-    })
+    ({ className, version }) => searchClass(className, version),
   );
 
-  server.tool(
-    "get_class_source",
+  textTool(server, "get_class_source",
     "Get the full source code of a specific Java class. Auto-discovers file if not found at the given path.",
     {
       filePath: z.string().describe("Relative or absolute path to the Java file"),
       version: versionParam,
     },
-    async ({ filePath, version }) => ({
-      content: [{ type: "text", text: await getClassSource(filePath, version) }],
-    })
+    ({ filePath, version }) => getClassSource(filePath, version),
   );
 
-  server.tool(
-    "find_interface_implementors",
+  textTool(server, "find_interface_implementors",
     "Find all classes that implement a given interface or extend a given class.",
     {
       interfaceName: z.string().describe("Interface or class name to find implementors of"),
       version: versionParam,
     },
-    async ({ interfaceName, version }) => ({
-      content: [{ type: "text", text: await findInterfaceImplementors(interfaceName, version) }],
-    })
+    ({ interfaceName, version }) => findInterfaceImplementors(interfaceName, version),
   );
 
-  server.tool(
-    "search_spi_definitions",
+  textTool(server, "search_spi_definitions",
     "Search and list SPI definitions in META-INF/services files.",
     {
       filter: z.string().optional().describe("Optional filter by SPI name"),
       version: versionParam,
     },
-    async ({ filter, version }) => ({
-      content: [{ type: "text", text: await searchSpiDefinitions(filter, version) }],
-    })
+    ({ filter, version }) => searchSpiDefinitions(filter, version),
   );
 
-  server.tool(
-    "grep_source",
+  textTool(server, "grep_source",
     "Full-text search across the Keycloak source code. Uses ripgrep with regex support.",
     {
       query: z.string().describe("Search query (supports regex)"),
@@ -135,13 +143,10 @@ async function main(): Promise<void> {
       maxResults: z.number().optional().default(30).describe("Max results (default: 30, max: 100)"),
       version: versionParam,
     },
-    async ({ query, filePattern, maxResults, version }) => ({
-      content: [{ type: "text", text: await grepSource(query, filePattern, maxResults, version) }],
-    })
+    ({ query, filePattern, maxResults, version }) => grepSource(query, filePattern, maxResults, version),
   );
 
-  server.tool(
-    "explain_implementation",
+  textTool(server, "explain_implementation",
     "Primary tool for understanding Keycloak internals. Accepts natural language queries about features, classes, or flows. " +
     "Orchestrates deep source analysis including class hierarchies, interface methods, SPI extension points, implementations, and dependencies. " +
     'Examples: "How does authentication flow work?", "Explain ExecuteActionsActionTokenHandler", "What happens during password reset?", "RequiredActionProvider"',
@@ -149,13 +154,12 @@ async function main(): Promise<void> {
       topic: z.string().describe('Natural language query or class name (e.g. "How does token refresh work?", "AuthenticationProcessor", "required action flow")'),
       version: versionParam,
     },
-    async ({ topic, version }) => ({
-      content: [{ type: "text", text: await explainImplementation(topic, version) }],
-    })
+    ({ topic, version }) => explainImplementation(topic, version),
   );
 
-  server.tool(
-    "detect_breaking_changes",
+  // ── Version Comparison Tools ──
+
+  textTool(server, "detect_breaking_changes",
     "Compare Keycloak SPI interfaces between two versions to detect breaking changes.",
     {
       fromVersion: z.string().describe("Source version (e.g. '24.0.0' or registered name like 'v24')"),
@@ -164,101 +168,11 @@ async function main(): Promise<void> {
       sourcePathV1: z.string().optional().describe("Explicit path to older source"),
       sourcePathV2: z.string().optional().describe("Explicit path to newer source"),
     },
-    async ({ fromVersion, toVersion, interfaceNames, sourcePathV1, sourcePathV2 }) => {
-      // Try to resolve version names from VersionManager
-      let v1Path = sourcePathV1;
-      let v2Path = sourcePathV2;
-      if (!v1Path) {
-        try { v1Path = versionManager.resolve(fromVersion); } catch { /* fall through */ }
-      }
-      if (!v2Path) {
-        try { v2Path = versionManager.resolve(toVersion); } catch { /* fall through */ }
-      }
-      return {
-        content: [{
-          type: "text",
-          text: await detectBreakingChanges(fromVersion, toVersion, interfaceNames, v1Path, v2Path),
-        }],
-      };
-    }
+    ({ fromVersion, toVersion, interfaceNames, sourcePathV1, sourcePathV2 }) =>
+      detectBreakingChanges(fromVersion, toVersion, interfaceNames, sourcePathV1, sourcePathV2),
   );
 
-  server.tool(
-    "trace_dependencies",
-    "Trace what a Keycloak class depends on and what depends on it.",
-    {
-      className: z.string().describe("Class or interface name"),
-      direction: z.enum(["upstream", "downstream", "both"]).describe("Trace direction"),
-      depth: z.number().optional().default(2).describe("Depth (default: 2, max: 4)"),
-      version: versionParam,
-    },
-    async ({ className, direction, depth, version }) => ({
-      content: [{ type: "text", text: await traceDependencies(className, direction, depth, version) }],
-    })
-  );
-
-  server.tool(
-    "keycloak_admin",
-    "Connect to a running Keycloak instance and perform admin queries.",
-    {
-      action: z.string().describe('Action: "list_realms", "list_flows", "list_clients", "list_providers", "get_realm_settings"'),
-      realm: z.string().optional().describe('Realm name (default: "master")'),
-    },
-    async ({ action, realm }) => ({
-      content: [{ type: "text", text: await keycloakAdmin(action, realm) }],
-    })
-  );
-
-  server.tool(
-    "upgrade_assistant",
-    "Analyze custom Keycloak SPI implementations for upgrade compatibility.",
-    {
-      customSourcePath: z.string().describe("Path to custom extensions source"),
-      targetKeycloakVersion: z.string().describe("Target Keycloak version"),
-      currentKeycloakSourcePath: z.string().optional().describe("Path to target version source"),
-    },
-    async ({ customSourcePath, targetKeycloakVersion, currentKeycloakSourcePath }) => ({
-      content: [{ type: "text", text: await upgradeAssistant(customSourcePath, targetKeycloakVersion, currentKeycloakSourcePath) }],
-    })
-  );
-
-  server.tool(
-    "visualize_auth_flow",
-    "Visualize a Keycloak authentication flow as a Mermaid diagram.",
-    {
-      source: z.enum(["realm_export", "description"]).describe("Source type"),
-      realmExportPath: z.string().optional().describe("Path to realm JSON export"),
-      flowName: z.string().optional().describe("Flow to visualize (default: 'browser')"),
-      description: z.string().optional().describe("Plain English flow description"),
-    },
-    async ({ source, realmExportPath, flowName, description }) => ({
-      content: [{ type: "text", text: await visualizeAuthFlow(source, realmExportPath, flowName, description) }],
-    })
-  );
-
-  server.tool(
-    "check_security_advisories",
-    "Check Keycloak GitHub security advisories for CVEs affecting a version.",
-    {
-      keycloakVersion: z.string().describe("Keycloak version (e.g. '24.0.3')"),
-      severity: z.enum(["all", "critical", "high", "medium", "low"]).optional().default("all").describe("Severity filter"),
-    },
-    async ({ keycloakVersion, severity }) => ({
-      content: [{ type: "text", text: await checkSecurityAdvisories(keycloakVersion, severity) }],
-    })
-  );
-
-  server.tool(
-    "list_versions",
-    "List all registered Keycloak source versions.",
-    {},
-    async () => ({
-      content: [{ type: "text", text: listVersions() }],
-    })
-  );
-
-  server.tool(
-    "compare_across_versions",
+  textTool(server, "compare_across_versions",
     "Compare a class or interface across two registered Keycloak versions. Shows added/removed/changed methods.",
     {
       query: z.string().describe("Class or interface name to compare"),
@@ -266,83 +180,124 @@ async function main(): Promise<void> {
       toVersion: z.string().describe('Target version name (e.g. "v26")'),
       mode: z.enum(["diff", "side_by_side"]).optional().default("diff").describe("Output mode"),
     },
-    async ({ query, fromVersion, toVersion, mode }) => ({
-      content: [{ type: "text", text: await compareAcrossVersions(query, fromVersion, toVersion, mode) }],
-    })
+    ({ query, fromVersion, toVersion, mode }) => compareAcrossVersions(query, fromVersion, toVersion, mode),
   );
 
-  // ── Live Development Intelligence tools ──
+  // ── Dependency & Architecture Tools ──
 
-  server.tool(
-    "connect_dev_instance",
+  textTool(server, "trace_dependencies",
+    "Trace what a Keycloak class depends on and what depends on it.",
+    {
+      className: z.string().describe("Class or interface name"),
+      direction: z.enum(["upstream", "downstream", "both"]).describe("Trace direction"),
+      depth: z.number().optional().default(2).describe("Depth (default: 2, max: 4)"),
+      version: versionParam,
+    },
+    ({ className, direction, depth, version }) => traceDependencies(className, direction, depth, version),
+  );
+
+  textTool(server, "upgrade_assistant",
+    "Analyze custom Keycloak SPI implementations for upgrade compatibility.",
+    {
+      customSourcePath: z.string().describe("Path to custom extensions source"),
+      targetKeycloakVersion: z.string().describe("Target Keycloak version"),
+      currentKeycloakSourcePath: z.string().optional().describe("Path to target version source"),
+    },
+    ({ customSourcePath, targetKeycloakVersion, currentKeycloakSourcePath }) =>
+      upgradeAssistant(customSourcePath, targetKeycloakVersion, currentKeycloakSourcePath),
+  );
+
+  // ── Admin & Visualization Tools ──
+
+  textTool(server, "keycloak_admin",
+    "Connect to a running Keycloak instance and perform admin queries.",
+    {
+      action: z.string().describe('Action: "list_realms", "list_flows", "list_clients", "list_providers", "get_realm_settings"'),
+      realm: z.string().optional().describe('Realm name (default: "master")'),
+    },
+    ({ action, realm }) => keycloakAdmin(action, realm),
+  );
+
+  textTool(server, "visualize_auth_flow",
+    "Visualize a Keycloak authentication flow as a Mermaid diagram.",
+    {
+      source: z.enum(["realm_export", "description"]).describe("Source type"),
+      realmExportPath: z.string().optional().describe("Path to realm JSON export"),
+      flowName: z.string().optional().describe("Flow to visualize (default: 'browser')"),
+      description: z.string().optional().describe("Plain English flow description"),
+    },
+    ({ source, realmExportPath, flowName, description }) =>
+      visualizeAuthFlow(source, realmExportPath, flowName, description),
+  );
+
+  textTool(server, "check_security_advisories",
+    "Check Keycloak GitHub security advisories for CVEs affecting a version.",
+    {
+      keycloakVersion: z.string().describe("Keycloak version (e.g. '24.0.3')"),
+      severity: z.enum(["all", "critical", "high", "medium", "low"]).optional().default("all").describe("Severity filter"),
+    },
+    ({ keycloakVersion, severity }) => checkSecurityAdvisories(keycloakVersion, severity),
+  );
+
+  textTool(server, "list_versions",
+    "List all registered Keycloak source versions.",
+    {},
+    () => listVersions(),
+  );
+
+  // ── Live Development Intelligence Tools ──
+
+  textTool(server, "connect_dev_instance",
     "Test connection to a running Keycloak dev instance. Returns status, version info, and detected custom providers.",
     {},
-    async () => ({
-      content: [{ type: "text", text: await connectDevInstance() }],
-    })
+    () => connectDevInstance(),
   );
 
-  server.tool(
-    "get_loaded_providers",
+  textTool(server, "get_loaded_providers",
     "List all SPI providers registered in the running Keycloak instance, correlated with source code.",
     {
       spiType: z.string().optional().describe('Filter by SPI type e.g. "authenticator", "required-action"'),
       customOnly: z.boolean().optional().default(false).describe("Show only non-Keycloak-core providers"),
     },
-    async ({ spiType, customOnly }) => ({
-      content: [{ type: "text", text: await getLoadedProviders(spiType, customOnly) }],
-    })
+    ({ spiType, customOnly }) => getLoadedProviders(spiType, customOnly),
   );
 
-  server.tool(
-    "analyze_logs",
+  textTool(server, "analyze_logs",
     "Read and analyze recent Keycloak logs. Detects errors, stack traces, and authentication flow steps.",
     {
       lines: z.number().optional().default(200).describe("Number of recent log lines to analyze (default: 200)"),
       filter: z.string().optional().describe("Filter to specific class name or keyword"),
       extractFlow: z.boolean().optional().default(true).describe("Attempt to extract authentication flow steps"),
     },
-    async ({ lines, filter, extractFlow }) => ({
-      content: [{ type: "text", text: await analyzeLogs(lines, filter, extractFlow) }],
-    })
+    ({ lines, filter, extractFlow }) => analyzeLogs(lines, filter, extractFlow),
   );
 
-  server.tool(
-    "trace_authentication_flow",
+  textTool(server, "trace_authentication_flow",
     "Guide through triggering and tracing a Keycloak authentication flow with log analysis.",
     {
       realm: z.string().describe("Realm to trace authentication in"),
       description: z.string().describe('Description of what to test, e.g. "browser login with OTP"'),
     },
-    async ({ realm, description }) => ({
-      content: [{ type: "text", text: await traceAuthenticationFlow(realm, description) }],
-    })
+    ({ realm, description }) => traceAuthenticationFlow(realm, description),
   );
 
-  server.tool(
-    "validate_spi_registration",
+  textTool(server, "validate_spi_registration",
     "Validate that custom SPI providers are correctly registered and configured. Detects common registration mistakes.",
     {
       customSourcePath: z.string().optional().describe("Path to custom extensions source (falls back to KEYCLOAK_SOURCE_PATH)"),
     },
-    async ({ customSourcePath }) => ({
-      content: [{ type: "text", text: await validateSpiRegistration(customSourcePath) }],
-    })
+    ({ customSourcePath }) => validateSpiRegistration(customSourcePath),
   );
 
-  server.tool(
-    "get_dev_instance_config",
+  textTool(server, "get_dev_instance_config",
     "Get active configuration of the running Keycloak instance, focused on SPI-relevant settings.",
     {
       filter: z.string().optional().describe('Filter config keys by prefix e.g. "kc.spi", "quarkus.datasource"'),
     },
-    async ({ filter }) => ({
-      content: [{ type: "text", text: await getDevInstanceConfig(filter) }],
-    })
+    ({ filter }) => getDevInstanceConfig(filter),
   );
 
-  server.tool(
-    "debug_auth_flow",
+  textTool(server, "debug_auth_flow",
     "Real-time auth flow debugger. Phase 'start' captures a log snapshot; phase 'analyze' reads new log entries and produces a source-annotated trace.",
     {
       phase: z.enum(["start", "analyze"]).describe("Phase: 'start' to capture snapshot, 'analyze' to produce trace"),
@@ -351,22 +306,21 @@ async function main(): Promise<void> {
       snapshot: z.string().optional().describe("JSON snapshot string from the start phase"),
       version: versionParam,
     },
-    async ({ phase, realm, description, snapshot, version }) => ({
-      content: [{ type: "text", text: await debugAuthFlow(phase, realm, description, snapshot, version) }],
-    })
+    ({ phase, realm, description, snapshot, version }) =>
+      debugAuthFlow(phase, realm, description, snapshot, version),
   );
 
-  server.tool(
-    "diagnose_user",
+  textTool(server, "diagnose_user",
     "Diagnose why a user cannot log in. Searches by name, email, or username and checks account status, credentials, brute force lockout, recent login events, and active sessions.",
     {
       query: z.string().describe('User search query — name, email, or username (e.g. "John Doe", "john@example.com")'),
       realm: z.string().optional().default("master").describe("Realm to search in (default: master)"),
     },
-    async ({ query, realm }) => ({
-      content: [{ type: "text", text: await diagnoseUserTool(query, realm) }],
-    })
+    ({ query, realm }) => diagnoseUserTool(query, realm),
   );
+
+  // Print banner after all tools registered so count is accurate
+  printStartupBanner();
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

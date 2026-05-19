@@ -1,4 +1,5 @@
 import { fetchWithCache } from "../utils.js";
+import { SEPARATOR } from "../constants.js";
 
 interface Advisory {
   cveId: string;
@@ -166,7 +167,7 @@ function formatAdvisoryReport(
 ): string {
   const lines: string[] = [];
   lines.push(`Security Advisory Report: Keycloak ${version}`);
-  lines.push("=".repeat(60));
+  lines.push(SEPARATOR.HEADER);
   lines.push(`Severity filter: ${severity}`);
   lines.push(`Advisories checked: ${totalFetched}`);
   lines.push(`Affecting this version: ${advisories.length}`);
@@ -231,7 +232,7 @@ function formatAdvisoryReport(
     bySeverity.set(sev, (bySeverity.get(sev) || 0) + 1);
   }
 
-  lines.push("-".repeat(60));
+  lines.push(SEPARATOR.FOOTER);
   lines.push("Summary by severity:");
   for (const [sev, count] of [...bySeverity.entries()].sort((a, b) =>
     (severityOrder[a[0]] ?? 4) - (severityOrder[b[0]] ?? 4)

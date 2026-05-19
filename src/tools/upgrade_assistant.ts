@@ -1,6 +1,16 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getSourcePath, searchWithRg, parseJavaClass, type ParsedMethod } from "../utils.js";
+import {
+  getSourcePath,
+  searchWithRg,
+  parseJavaClass,
+  findClassFile,
+  resolveToAbsolute,
+  buildMethodMap,
+  formatMethodSignature,
+  type ParsedMethod,
+} from "../utils.js";
+import { SEPARATOR } from "../constants.js";
 
 interface AffectedClass {
   filePath: string;
@@ -43,15 +53,13 @@ export async function upgradeAssistant(
     return `No Java files found in: ${customSourcePath}`;
   }
 
-  // 2. Analyze each file
-  const affectedClasses: AffectedClass[] = [];
-
-  for (const file of customFiles) {
-    const result = await analyzeCustomClass(file, customSourcePath, keycloakPath);
-    if (result && result.issues.length > 0) {
-      affectedClasses.push(result);
-    }
-  }
+  // 2. Analyze each file in parallel
+  const analysisResults = await Promise.all(
+    customFiles.map((file) => analyzeCustomClass(file, customSourcePath, keycloakPath))
+  );
+  const affectedClasses = analysisResults.filter(
+    (r): r is AffectedClass => r !== null && r.issues.length > 0
+  );
 
   // 3. Format report
   return formatUpgradeReport(
@@ -67,9 +75,7 @@ async function findJavaFiles(dir: string): Promise<string[]> {
     const args = ["--files", "--glob", "**/*.java"];
     const result = await searchWithRg(args, dir);
     if (!result.trim()) return [];
-    return result.trim().split("\n").map((f) =>
-      f.startsWith("/") ? f : path.join(dir, f)
-    );
+    return result.trim().split("\n").map((f) => resolveToAbsolute(f, dir));
   } catch {
     return [];
   }
@@ -131,17 +137,7 @@ async function checkInterfaceCompatibility(
   const issues: UpgradeIssue[] = [];
 
   // Find the interface in Keycloak source
-  let interfaceFile: string | null = null;
-  try {
-    const args = ["--files", "--glob", `**/${interfaceName}.java`];
-    const result = await searchWithRg(args, keycloakPath);
-    if (result.trim()) {
-      const file = result.trim().split("\n")[0];
-      interfaceFile = file.startsWith("/") ? file : path.join(keycloakPath, file);
-    }
-  } catch {
-    // ignore
-  }
+  const interfaceFile = await findClassFile(keycloakPath, interfaceName);
 
   if (!interfaceFile) {
     issues.push({
@@ -163,15 +159,8 @@ async function checkInterfaceCompatibility(
   const interfaceParsed = parseJavaClass(interfaceSource);
 
   // Build maps of methods
-  const customMethods = new Map<string, ParsedMethod>();
-  for (const m of customParsed.methods) {
-    customMethods.set(m.name, m);
-  }
-
-  const interfaceMethods = new Map<string, ParsedMethod>();
-  for (const m of interfaceParsed.methods) {
-    interfaceMethods.set(m.name, m);
-  }
+  const customMethods = buildMethodMap(customParsed.methods);
+  const interfaceMethods = buildMethodMap(interfaceParsed.methods);
 
   // Check for new required methods in the interface that the custom class doesn't implement
   for (const [name, method] of interfaceMethods) {
@@ -179,7 +168,7 @@ async function checkInterfaceCompatibility(
       issues.push({
         severity: "BREAKING",
         interfaceName,
-        description: `New required method not implemented: ${method.returnType} ${name}(${method.parameters})`,
+        description: `New required method not implemented: ${formatMethodSignature(method)}`,
         suggestedAction: `Add implementation for ${name}() in your class. Check existing Keycloak implementations for reference.`,
       });
     }
@@ -235,7 +224,7 @@ function formatUpgradeReport(
 ): string {
   const lines: string[] = [];
   lines.push(`Upgrade Assistant Report`);
-  lines.push("=".repeat(60));
+  lines.push(SEPARATOR.HEADER);
   lines.push(`Custom source: ${customPath}`);
   lines.push(`Target Keycloak version: ${targetVersion}`);
   lines.push(`Java files scanned: ${totalFiles}`);
@@ -257,7 +246,7 @@ function formatUpgradeReport(
     lines.push(`File: ${cls.filePath}`);
     lines.push(`Class: ${cls.className}`);
     lines.push(`Implements: ${cls.implementedInterfaces.join(", ")}`);
-    lines.push("-".repeat(40));
+    lines.push(SEPARATOR.SECTION);
 
     for (const issue of cls.issues) {
       if (issue.severity === "BREAKING") breakingCount++;
@@ -272,9 +261,9 @@ function formatUpgradeReport(
     lines.push("");
   }
 
-  lines.push("=".repeat(60));
+  lines.push(SEPARATOR.HEADER);
   lines.push("Summary");
-  lines.push("-".repeat(40));
+  lines.push(SEPARATOR.SECTION);
   lines.push(`  Breaking changes: ${breakingCount}`);
   lines.push(`  Warnings: ${warningCount}`);
   lines.push(`  Affected classes: ${affected.length}`);

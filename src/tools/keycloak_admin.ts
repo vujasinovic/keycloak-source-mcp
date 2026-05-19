@@ -1,4 +1,5 @@
 import { fetchKeycloakAdminToken } from "../utils.js";
+import { LIMITS, SEPARATOR } from "../constants.js";
 
 interface AdminConfig {
   url: string;
@@ -121,7 +122,7 @@ async function listRealms(config: AdminConfig): Promise<string> {
 
   const lines: string[] = [];
   lines.push("Realms");
-  lines.push("=".repeat(40));
+  lines.push(SEPARATOR.HEADER);
   lines.push("");
 
   for (const r of realms) {
@@ -148,7 +149,7 @@ async function listFlows(config: AdminConfig, realm: string): Promise<string> {
 
   const lines: string[] = [];
   lines.push(`Authentication Flows — Realm: ${realm}`);
-  lines.push("=".repeat(40));
+  lines.push(SEPARATOR.HEADER);
   lines.push("");
 
   for (const f of flows) {
@@ -177,7 +178,7 @@ async function listClients(config: AdminConfig, realm: string): Promise<string> 
 
   const lines: string[] = [];
   lines.push(`Clients — Realm: ${realm}`);
-  lines.push("=".repeat(40));
+  lines.push(SEPARATOR.HEADER);
   lines.push("");
 
   for (const c of clients) {
@@ -200,7 +201,7 @@ async function listProviders(config: AdminConfig): Promise<string> {
 
   const lines: string[] = [];
   lines.push("Registered SPI Providers");
-  lines.push("=".repeat(40));
+  lines.push(SEPARATOR.HEADER);
   lines.push("");
 
   if (!info.providers) {
@@ -209,20 +210,20 @@ async function listProviders(config: AdminConfig): Promise<string> {
   }
 
   const entries = Object.entries(info.providers);
-  for (const [spiName, spiInfo] of entries.slice(0, 50)) {
+  for (const [spiName, spiInfo] of entries.slice(0, LIMITS.MAX_PROVIDERS_DISPLAY)) {
     const implCount = spiInfo.implementations
       ? Object.keys(spiInfo.implementations).length
       : 0;
     lines.push(`  ${spiName} (${implCount} implementation(s))`);
     if (spiInfo.implementations) {
-      for (const implName of Object.keys(spiInfo.implementations).slice(0, 10)) {
+      for (const implName of Object.keys(spiInfo.implementations).slice(0, LIMITS.MAX_PROVIDER_IMPLS_DISPLAY)) {
         lines.push(`    - ${implName}`);
       }
     }
   }
 
-  if (entries.length > 50) {
-    lines.push(`  ... and ${entries.length - 50} more SPIs`);
+  if (entries.length > LIMITS.MAX_PROVIDERS_DISPLAY) {
+    lines.push(`  ... and ${entries.length - LIMITS.MAX_PROVIDERS_DISPLAY} more SPIs`);
   }
 
   lines.push("");
@@ -238,7 +239,7 @@ async function getRealmSettings(config: AdminConfig, realm: string): Promise<str
 
   const lines: string[] = [];
   lines.push(`Realm Settings — ${realm}`);
-  lines.push("=".repeat(40));
+  lines.push(SEPARATOR.HEADER);
   lines.push("");
 
   // Show key settings in a readable format

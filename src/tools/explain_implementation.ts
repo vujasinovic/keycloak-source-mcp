@@ -1,6 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getSourcePath, searchWithRg, parseJavaClass } from "../utils.js";
+import {
+  getSourcePath,
+  searchWithRg,
+  parseJavaClass,
+  findClassFile,
+  resolveToAbsolute,
+  stripSourcePrefix,
+} from "../utils.js";
+import { LIMITS, SEPARATOR } from "../constants.js";
 
 /**
  * Topic-to-search-terms mapping for common Keycloak features.
@@ -149,7 +157,7 @@ function detectClassQuery(topic: string): string | null {
 async function explainClass(className: string, sourcePath: string): Promise<string> {
   const sections: string[] = [];
   sections.push(`Deep Analysis: ${className}`);
-  sections.push("=".repeat(60));
+  sections.push(SEPARATOR.HEADER);
 
   // 1. Find the class file
   const classFile = await findClassFile(sourcePath, className);
@@ -176,7 +184,7 @@ async function explainClass(className: string, sourcePath: string): Promise<stri
   // 2. Overview section
   sections.push("");
   sections.push("Overview");
-  sections.push("-".repeat(40));
+  sections.push(SEPARATOR.SECTION);
   sections.push(`File: ${relPath}`);
   sections.push(`Package: ${parsed.packageName}`);
   if (parsed.extendsList.length > 0) {
@@ -196,7 +204,7 @@ async function explainClass(className: string, sourcePath: string): Promise<stri
   // 3. Source code with method signatures
   sections.push("");
   sections.push("Methods");
-  sections.push("-".repeat(40));
+  sections.push(SEPARATOR.SECTION);
   if (parsed.methods.length === 0) {
     sections.push("  (no methods found)");
   } else {
@@ -210,15 +218,20 @@ async function explainClass(className: string, sourcePath: string): Promise<stri
     }
   }
 
-  // 4. Interface/superclass hierarchy — read parent source
+  // 4. Interface/superclass hierarchy — resolve parents in parallel
   const parents = [...parsed.extendsList, ...parsed.implementsList];
   if (parents.length > 0) {
     sections.push("");
     sections.push("Interface / Superclass Hierarchy");
-    sections.push("-".repeat(40));
+    sections.push(SEPARATOR.SECTION);
 
-    for (const parent of parents) {
-      const parentFile = await findClassFile(sourcePath, parent);
+    const parentFiles = await Promise.all(
+      parents.map((parent) => findClassFile(sourcePath, parent))
+    );
+
+    for (let idx = 0; idx < parents.length; idx++) {
+      const parent = parents[idx];
+      const parentFile = parentFiles[idx];
       if (parentFile) {
         const parentRel = path.relative(sourcePath, parentFile);
         const parentSource = await fs.promises.readFile(parentFile, "utf-8");
@@ -251,12 +264,12 @@ async function explainClass(className: string, sourcePath: string): Promise<stri
     if (implementors.length > 0) {
       sections.push("");
       sections.push("Known Implementors / Subclasses");
-      sections.push("-".repeat(40));
-      for (const impl of implementors.slice(0, 15)) {
+      sections.push(SEPARATOR.SECTION);
+      for (const impl of implementors.slice(0, LIMITS.MAX_IMPLEMENTOR_DISPLAY)) {
         sections.push(`  ${impl}`);
       }
-      if (implementors.length > 15) {
-        sections.push(`  ... and ${implementors.length - 15} more`);
+      if (implementors.length > LIMITS.MAX_IMPLEMENTOR_DISPLAY) {
+        sections.push(`  ... and ${implementors.length - LIMITS.MAX_IMPLEMENTOR_DISPLAY} more`);
       }
     }
   }
@@ -266,8 +279,8 @@ async function explainClass(className: string, sourcePath: string): Promise<stri
   if (internalImports.length > 0) {
     sections.push("");
     sections.push("Keycloak Dependencies");
-    sections.push("-".repeat(40));
-    for (const imp of internalImports.slice(0, 20)) {
+    sections.push(SEPARATOR.SECTION);
+    for (const imp of internalImports.slice(0, LIMITS.MAX_INTERNAL_IMPORTS_DISPLAY)) {
       sections.push(`  ${imp}`);
     }
   }
@@ -277,7 +290,7 @@ async function explainClass(className: string, sourcePath: string): Promise<stri
   if (spiRegistrations.length > 0) {
     sections.push("");
     sections.push("SPI Registration");
-    sections.push("-".repeat(40));
+    sections.push(SEPARATOR.SECTION);
     for (const reg of spiRegistrations) {
       sections.push(`  ${reg}`);
     }
@@ -288,19 +301,19 @@ async function explainClass(className: string, sourcePath: string): Promise<stri
   if (usages.length > 0) {
     sections.push("");
     sections.push("Referenced By");
-    sections.push("-".repeat(40));
-    for (const usage of usages.slice(0, 10)) {
+    sections.push(SEPARATOR.SECTION);
+    for (const usage of usages.slice(0, LIMITS.MAX_USAGE_DISPLAY)) {
       sections.push(`  ${usage}`);
     }
-    if (usages.length > 10) {
-      sections.push(`  ... and ${usages.length - 10} more references`);
+    if (usages.length > LIMITS.MAX_USAGE_DISPLAY) {
+      sections.push(`  ... and ${usages.length - LIMITS.MAX_USAGE_DISPLAY} more references`);
     }
   }
 
   // 9. Full source code
   sections.push("");
   sections.push("Full Source");
-  sections.push("-".repeat(40));
+  sections.push(SEPARATOR.SECTION);
   sections.push(source);
 
   return sections.join("\n");
@@ -317,23 +330,29 @@ async function explainTopic(topic: string, normalizedTopic: string, sourcePath: 
 
   const sections: string[] = [];
   sections.push(`Keycloak Implementation Analysis: "${topic}"`);
-  sections.push("=".repeat(60));
+  sections.push(SEPARATOR.HEADER);
 
   // Build search terms
   const searchTerms = hints
     ? [...hints.classes, ...hints.interfaces]
     : extractSearchTerms(topic);
+  const interfaceNames = hints?.interfaces || extractSearchTerms(topic).map((t) => `${t}Provider`).slice(0, LIMITS.MAX_INTERFACES_TO_SEARCH);
 
-  // 1. Find key classes with details
+  // Run independent searches in parallel for better performance
+  const [keyClassesSection, interfacesSection, spiSection, ftlSection] = await Promise.all([
+    findKeyClassesDeep(sourcePath, searchTerms, topic),
+    findMainInterfacesDeep(sourcePath, interfaceNames, topic),
+    findSpiExtensionPoints(sourcePath, hints?.spiPatterns || [], topic),
+    isUiRelatedTopic(normalizedTopic) ? findFreeMarkerTemplates(sourcePath, topic) : null,
+  ]);
+
   sections.push("");
-  sections.push(await findKeyClassesDeep(sourcePath, searchTerms, topic));
+  sections.push(keyClassesSection);
 
-  // 2. Find main interfaces with method signatures
-  const interfaceNames = hints?.interfaces || extractSearchTerms(topic).map((t) => `${t}Provider`).slice(0, 4);
   sections.push("");
-  sections.push(await findMainInterfacesDeep(sourcePath, interfaceNames, topic));
+  sections.push(interfacesSection);
 
-  // 3. Find implementations with hierarchy
+  // Implementations depend on interface names but can run after interfaces section is built
   if (interfaceNames.length > 0) {
     const implSection = await findImplementationsDeep(sourcePath, interfaceNames);
     if (implSection) {
@@ -342,17 +361,12 @@ async function explainTopic(topic: string, normalizedTopic: string, sourcePath: 
     }
   }
 
-  // 4. Find SPI extension points
   sections.push("");
-  sections.push(await findSpiExtensionPoints(sourcePath, hints?.spiPatterns || [], topic));
+  sections.push(spiSection);
 
-  // 5. FreeMarker templates (for UI-related topics)
-  if (isUiRelatedTopic(normalizedTopic)) {
-    const ftlSection = await findFreeMarkerTemplates(sourcePath, topic);
-    if (ftlSection) {
-      sections.push("");
-      sections.push(ftlSection);
-    }
+  if (ftlSection) {
+    sections.push("");
+    sections.push(ftlSection);
   }
 
   if (!hints) {
@@ -400,18 +414,6 @@ function extractClassJavadoc(source: string): string {
 
 // ── Internal helpers ──
 
-async function findClassFile(sourcePath: string, className: string): Promise<string | null> {
-  try {
-    const args = ["--files", "--glob", `**/${className}.java`];
-    const result = await searchWithRg(args, sourcePath);
-    if (!result.trim()) return null;
-    const file = result.trim().split("\n")[0];
-    return file.startsWith("/") ? file : path.join(sourcePath, file);
-  } catch {
-    return null;
-  }
-}
-
 async function findSimilarClasses(sourcePath: string, className: string): Promise<string[]> {
   const results: string[] = [];
   try {
@@ -424,7 +426,7 @@ async function findSimilarClasses(sourcePath: string, className: string): Promis
     if (result.trim()) {
       const lines = result.trim().split("\n");
       for (const line of lines) {
-        const relLine = line.startsWith(sourcePath) ? line.substring(sourcePath.length + 1) : line;
+        const relLine = stripSourcePrefix(line, sourcePath);
         results.push(relLine);
       }
     }
@@ -442,7 +444,7 @@ async function findImplementors(sourcePath: string, interfaceName: string): Prom
       const result = await searchWithRg(args, sourcePath);
       if (result.trim()) {
         for (const line of result.trim().split("\n")) {
-          const relLine = line.startsWith(sourcePath) ? line.substring(sourcePath.length + 1) : line;
+          const relLine = stripSourcePrefix(line, sourcePath);
           if (!results.some((r) => r.split(":")[0] === relLine.split(":")[0])) {
             results.push(relLine);
           }
@@ -462,7 +464,7 @@ async function findUsages(sourcePath: string, className: string): Promise<string
     const result = await searchWithRg(args, sourcePath);
     if (result.trim()) {
       for (const line of result.trim().split("\n")) {
-        const relLine = line.startsWith(sourcePath) ? line.substring(sourcePath.length + 1) : line;
+        const relLine = stripSourcePrefix(line, sourcePath);
         // Exclude the class's own file
         if (!relLine.endsWith(`${className}.java`)) {
           results.push(relLine);
@@ -483,12 +485,12 @@ async function findSpiRegistration(sourcePath: string, className: string, packag
     const filesResult = await searchWithRg(args, sourcePath);
     if (filesResult.trim()) {
       for (const file of filesResult.trim().split("\n")) {
-        const fullPath = file.startsWith("/") ? file : path.join(sourcePath, file);
+        const fullPath = resolveToAbsolute(file, sourcePath);
         try {
           const content = await fs.promises.readFile(fullPath, "utf-8");
           if (content.includes(className) || content.includes(fqn)) {
             const spiInterface = path.basename(fullPath);
-            const relFile = file.startsWith(sourcePath) ? file.substring(sourcePath.length + 1) : file;
+            const relFile = stripSourcePrefix(file, sourcePath);
             results.push(`Registered as provider for SPI: ${spiInterface} (${relFile})`);
           }
         } catch {
@@ -503,17 +505,17 @@ async function findSpiRegistration(sourcePath: string, className: string, packag
 }
 
 async function findKeyClassesDeep(sourcePath: string, searchTerms: string[], topic: string): Promise<string> {
-  let section = "Key Classes\n" + "-".repeat(40) + "\n";
+  let section = "Key Classes\n" + SEPARATOR.SECTION + "\n";
   const found: Array<{ relPath: string; className: string; doc: string; methods: string[] }> = [];
 
-  for (const term of searchTerms.slice(0, 8)) {
+  for (const term of searchTerms.slice(0, LIMITS.MAX_SEARCH_TERMS)) {
     try {
       const args = ["--files", "--glob", `**/${term}.java`];
       const result = await searchWithRg(args, sourcePath);
       if (result.trim()) {
         for (const file of result.trim().split("\n").slice(0, 3)) {
-          const fullPath = file.startsWith("/") ? file : path.join(sourcePath, file);
-          const relPath = file.startsWith(sourcePath) ? file.substring(sourcePath.length + 1) : file;
+          const fullPath = resolveToAbsolute(file, sourcePath);
+          const relPath = stripSourcePrefix(file, sourcePath);
 
           // Don't add duplicates
           if (found.some((f) => f.relPath === relPath)) continue;
@@ -548,7 +550,7 @@ async function findKeyClassesDeep(sourcePath: string, searchTerms: string[], top
         const result = await searchWithRg(args, sourcePath);
         if (result.trim()) {
           for (const line of result.trim().split("\n")) {
-            const relLine = line.startsWith(sourcePath) ? line.substring(sourcePath.length + 1) : line;
+            const relLine = stripSourcePrefix(line, sourcePath);
             const filePart = relLine.split(":")[0];
             if (!found.some((f) => f.relPath === filePart)) {
               found.push({ relPath: relLine, className: "", doc: "", methods: [] });
@@ -579,12 +581,12 @@ async function findKeyClassesDeep(sourcePath: string, searchTerms: string[], top
 }
 
 async function findMainInterfacesDeep(sourcePath: string, interfaces: string[], topic: string): Promise<string> {
-  let section = "Main Interfaces\n" + "-".repeat(40) + "\n";
+  let section = "Main Interfaces\n" + SEPARATOR.SECTION + "\n";
   const found: Array<{ name: string; relPath: string; doc: string; methods: string[]; hierarchy: string }> = [];
 
   const searchList = interfaces.length > 0
     ? interfaces
-    : extractSearchTerms(topic).map((t) => `${t}Provider`).slice(0, 4);
+    : extractSearchTerms(topic).map((t) => `${t}Provider`).slice(0, LIMITS.MAX_INTERFACES_TO_SEARCH);
 
   for (const iface of searchList) {
     const classFile = await findClassFile(sourcePath, iface);
@@ -595,7 +597,7 @@ async function findMainInterfacesDeep(sourcePath: string, interfaces: string[], 
         const result = await searchWithRg(args, sourcePath);
         if (result.trim()) {
           const relLine = result.trim().split("\n")[0];
-          const relPath = relLine.startsWith(sourcePath) ? relLine.substring(sourcePath.length + 1) : relLine;
+          const relPath = stripSourcePrefix(relLine, sourcePath);
           found.push({ name: iface, relPath, doc: "", methods: [], hierarchy: "" });
         }
       } catch {
@@ -654,23 +656,23 @@ async function findMainInterfacesDeep(sourcePath: string, interfaces: string[], 
 }
 
 async function findImplementationsDeep(sourcePath: string, interfaces: string[]): Promise<string | null> {
-  let section = "Default Implementations\n" + "-".repeat(40) + "\n";
+  let section = "Default Implementations\n" + SEPARATOR.SECTION + "\n";
   const found: Array<{ className: string; relPath: string; implementsInterface: string; doc: string }> = [];
 
-  for (const iface of interfaces.slice(0, 4)) {
+  for (const iface of interfaces.slice(0, LIMITS.MAX_INTERFACES_TO_SEARCH)) {
     try {
       const args = ["-n", "--type", "java", "-m", "10", `implements\\s+.*\\b${iface}\\b`];
       const result = await searchWithRg(args, sourcePath);
       if (result.trim()) {
         for (const line of result.trim().split("\n")) {
-          const relLine = line.startsWith(sourcePath) ? line.substring(sourcePath.length + 1) : line;
+          const relLine = stripSourcePrefix(line, sourcePath);
           const filePart = relLine.split(":")[0];
 
           // Skip if we already have this file
           if (found.some((f) => f.relPath === filePart)) continue;
 
           // Try to read the file for more detail
-          const fullPath = filePart.startsWith("/") ? filePart : path.join(sourcePath, filePart);
+          const fullPath = resolveToAbsolute(filePart, sourcePath);
           try {
             const source = await fs.promises.readFile(fullPath, "utf-8");
             const parsed = parseJavaClass(source);
@@ -710,12 +712,12 @@ async function findImplementationsDeep(sourcePath: string, interfaces: string[])
 }
 
 async function findSpiExtensionPoints(sourcePath: string, spiPatterns: string[], topic: string): Promise<string> {
-  let section = "SPI Extension Points\n" + "-".repeat(40) + "\n";
+  let section = "SPI Extension Points\n" + SEPARATOR.SECTION + "\n";
   const found: string[] = [];
 
   const patterns = spiPatterns.length > 0
     ? spiPatterns
-    : extractSearchTerms(topic).map((t) => `${t}Spi`).slice(0, 4);
+    : extractSearchTerms(topic).map((t) => `${t}Spi`).slice(0, LIMITS.MAX_INTERFACES_TO_SEARCH);
 
   for (const pattern of patterns) {
     try {
@@ -723,7 +725,7 @@ async function findSpiExtensionPoints(sourcePath: string, spiPatterns: string[],
       const result = await searchWithRg(args, sourcePath);
       if (result.trim()) {
         for (const line of result.trim().split("\n")) {
-          const relLine = line.startsWith(sourcePath) ? line.substring(sourcePath.length + 1) : line;
+          const relLine = stripSourcePrefix(line, sourcePath);
           found.push(`  ${relLine}`);
         }
       }
@@ -742,9 +744,9 @@ async function findSpiExtensionPoints(sourcePath: string, spiPatterns: string[],
         for (const file of filesResult.trim().split("\n")) {
           const basename = file.split("/").pop() || "";
           if (topicTerms.some((t) => basename.toLowerCase().includes(t.toLowerCase()))) {
-            const relFile = file.startsWith(sourcePath) ? file.substring(sourcePath.length + 1) : file;
+            const relFile = stripSourcePrefix(file, sourcePath);
             // Read the file to list implementations
-            const fullPath = file.startsWith("/") ? file : path.join(sourcePath, file);
+            const fullPath = resolveToAbsolute(file, sourcePath);
             try {
               const content = await fs.promises.readFile(fullPath, "utf-8");
               const impls = content.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
@@ -790,7 +792,7 @@ async function findFreeMarkerTemplates(sourcePath: string, topic: string): Promi
       for (const file of result.trim().split("\n")) {
         const basename = (file.split("/").pop() || "").toLowerCase();
         if (topicTerms.some((t) => basename.includes(t))) {
-          const relFile = file.startsWith(sourcePath) ? file.substring(sourcePath.length + 1) : file;
+          const relFile = stripSourcePrefix(file, sourcePath);
           found.push(relFile);
         }
       }
@@ -801,12 +803,12 @@ async function findFreeMarkerTemplates(sourcePath: string, topic: string): Promi
 
   if (found.length === 0) return null;
 
-  let section = "FreeMarker Templates\n" + "-".repeat(40) + "\n";
-  for (const f of found.slice(0, 10)) {
+  let section = "FreeMarker Templates\n" + SEPARATOR.SECTION + "\n";
+  for (const f of found.slice(0, LIMITS.MAX_FREEMARKER_DISPLAY)) {
     section += `  ${f}\n`;
   }
-  if (found.length > 10) {
-    section += `  ... and ${found.length - 10} more templates`;
+  if (found.length > LIMITS.MAX_FREEMARKER_DISPLAY) {
+    section += `  ... and ${found.length - LIMITS.MAX_FREEMARKER_DISPLAY} more templates`;
   }
   return section;
 }

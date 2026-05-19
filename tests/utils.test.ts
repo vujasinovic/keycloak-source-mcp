@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { parseJavaClass, formatResults, getSourcePath } from "../src/utils.js";
+import {
+  parseJavaClass,
+  formatResults,
+  getSourcePath,
+  findClassFile,
+  resolveToAbsolute,
+  stripSourcePrefix,
+  buildMethodMap,
+  formatMethodSignature,
+  type ParsedMethod,
+} from "../src/utils.js";
 import { setupMockEnv, cleanupEnv, MOCK_SOURCE_PATH } from "./test-utils.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -138,5 +148,80 @@ describe("getSourcePath", () => {
   it("throws when path does not exist", () => {
     process.env.KEYCLOAK_SOURCE_PATH = "/nonexistent/path";
     expect(() => getSourcePath()).toThrow("does not exist");
+  });
+});
+
+// ── Tests for shared helpers ──
+
+describe("findClassFile", () => {
+  beforeEach(setupMockEnv);
+  afterEach(cleanupEnv);
+
+  it("finds a class by name", async () => {
+    const result = await findClassFile(MOCK_SOURCE_PATH, "Authenticator");
+    expect(result).not.toBeNull();
+    expect(result!).toContain("Authenticator.java");
+  });
+
+  it("returns null for non-existent class", async () => {
+    const result = await findClassFile(MOCK_SOURCE_PATH, "NonExistentClass12345");
+    expect(result).toBeNull();
+  });
+
+  it("returns an absolute path", async () => {
+    const result = await findClassFile(MOCK_SOURCE_PATH, "Authenticator");
+    expect(result).not.toBeNull();
+    expect(path.isAbsolute(result!)).toBe(true);
+  });
+});
+
+describe("resolveToAbsolute", () => {
+  it("returns absolute path unchanged", () => {
+    expect(resolveToAbsolute("/absolute/path.java", "/base")).toBe("/absolute/path.java");
+  });
+
+  it("joins relative path with base", () => {
+    expect(resolveToAbsolute("relative/path.java", "/base")).toBe("/base/relative/path.java");
+  });
+});
+
+describe("stripSourcePrefix", () => {
+  it("strips matching prefix", () => {
+    expect(stripSourcePrefix("/src/keycloak/Foo.java", "/src/keycloak")).toBe("Foo.java");
+  });
+
+  it("returns line unchanged when prefix does not match", () => {
+    expect(stripSourcePrefix("/other/Foo.java", "/src/keycloak")).toBe("/other/Foo.java");
+  });
+});
+
+describe("buildMethodMap", () => {
+  it("builds a map keyed by method name", () => {
+    const methods: ParsedMethod[] = [
+      { name: "foo", returnType: "void", parameters: "", modifiers: [], javadoc: "" },
+      { name: "bar", returnType: "String", parameters: "int x", modifiers: ["public"], javadoc: "" },
+    ];
+    const map = buildMethodMap(methods);
+    expect(map.size).toBe(2);
+    expect(map.get("foo")?.returnType).toBe("void");
+    expect(map.get("bar")?.parameters).toBe("int x");
+  });
+
+  it("handles empty array", () => {
+    const map = buildMethodMap([]);
+    expect(map.size).toBe(0);
+  });
+});
+
+describe("formatMethodSignature", () => {
+  it("formats a method signature correctly", () => {
+    const method: ParsedMethod = {
+      name: "authenticate",
+      returnType: "void",
+      parameters: "AuthenticationFlowContext context",
+      modifiers: ["public"],
+      javadoc: "",
+    };
+    expect(formatMethodSignature(method)).toBe("void authenticate(AuthenticationFlowContext context)");
   });
 });

@@ -1,4 +1,4 @@
-import { getSourcePath, searchWithRg, formatResults } from "../utils.js";
+import { getSourcePath, searchWithRg, formatResults, stripSourcePrefix } from "../utils.js";
 
 /**
  * Full-text search across the entire Keycloak source code.
@@ -43,12 +43,7 @@ export async function grepSource(
   }
 
   const lines = rawResults.trim().split("\n");
-  const formatted = lines.map((line) => {
-    if (line.startsWith(sourcePath)) {
-      return `  ${line.substring(sourcePath.length + 1)}`;
-    }
-    return `  ${line}`;
-  });
+  const formatted = lines.map((line) => `  ${stripSourcePrefix(line, sourcePath)}`);
 
   return formatResults(
     `Search results for: "${query}"${filePattern ? ` (files: ${filePattern})` : ""}`,

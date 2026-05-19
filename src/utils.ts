@@ -2,6 +2,7 @@ import { execa } from "execa";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { versionManager } from "./version-manager.js";
+import { SEPARATOR } from "./constants.js";
 
 /**
  * Parsed method from a Java class/interface.
@@ -549,7 +550,7 @@ export function formatResults(
   }
 
   const truncated = results.slice(0, maxResults);
-  let output = `${title}\n${"=".repeat(title.length)}\n\n`;
+  let output = `${title}\n${SEPARATOR.HEADER}\n\n`;
   output += truncated.join("\n");
 
   if (results.length > maxResults) {
@@ -557,4 +558,57 @@ export function formatResults(
   }
 
   return output;
+}
+
+// ── Shared helpers used across multiple tools ──
+
+/**
+ * Find a Java class file by name in the source tree.
+ * Returns the absolute path to the first match, or null if not found.
+ */
+export async function findClassFile(sourcePath: string, className: string): Promise<string | null> {
+  try {
+    const args = ["--files", "--glob", `**/${className}.java`];
+    const result = await searchWithRg(args, sourcePath);
+    if (!result.trim()) return null;
+    const file = result.trim().split("\n")[0];
+    return resolveToAbsolute(file, sourcePath);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a file path to absolute using an explicit base path.
+ * Unlike resolvePath() which always uses getSourcePath(), this takes any base.
+ */
+export function resolveToAbsolute(filePath: string, basePath: string): string {
+  return path.isAbsolute(filePath) ? filePath : path.join(basePath, filePath);
+}
+
+/**
+ * Strip the source path prefix from a line, returning a relative path.
+ * Common pattern across tools that format search results.
+ */
+export function stripSourcePrefix(line: string, sourcePath: string): string {
+  return line.startsWith(sourcePath) ? line.substring(sourcePath.length + 1) : line;
+}
+
+/**
+ * Build a Map<name, method> from a parsed class's methods array.
+ * Used by version comparison tools to detect added/removed/changed methods.
+ */
+export function buildMethodMap(methods: ParsedMethod[]): Map<string, ParsedMethod> {
+  const map = new Map<string, ParsedMethod>();
+  for (const m of methods) {
+    map.set(m.name, m);
+  }
+  return map;
+}
+
+/**
+ * Format a method signature as a single-line string.
+ */
+export function formatMethodSignature(method: ParsedMethod): string {
+  return `${method.returnType} ${method.name}(${method.parameters})`;
 }

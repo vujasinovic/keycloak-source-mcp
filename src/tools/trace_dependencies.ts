@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getSourcePath, searchWithRg, parseJavaClass } from "../utils.js";
+import { getSourcePath, searchWithRg, parseJavaClass, findClassFile, resolveToAbsolute } from "../utils.js";
+import { LIMITS, SEPARATOR } from "../constants.js";
 
 interface DepNode {
   name: string;
@@ -29,11 +30,11 @@ export async function traceDependencies(
 ): Promise<string> {
   if (!className || !className.trim()) return "Error: className is required.";
   if (depth < 1) depth = 1;
-  if (depth > 4) depth = 4;
+  if (depth > LIMITS.MAX_TRACE_DEPTH) depth = LIMITS.MAX_TRACE_DEPTH;
 
   const sourcePath = getSourcePath(version);
 
-  // Find the class file
+  // Find the class file (uses shared findClassFile from utils)
   const classFile = await findClassFile(sourcePath, className);
   if (!classFile) {
     return `Error: Could not find class "${className}" in the Keycloak source.`;
@@ -42,7 +43,7 @@ export async function traceDependencies(
   const relPath = path.relative(sourcePath, classFile);
   const lines: string[] = [];
   lines.push(`Dependency Trace: ${className}`);
-  lines.push("=".repeat(60));
+  lines.push(SEPARATOR.HEADER);
   lines.push(`File: ${relPath}`);
   lines.push(`Direction: ${direction} | Depth: ${depth}`);
   lines.push("");
@@ -70,18 +71,6 @@ export async function traceDependencies(
   lines.push("Legend: [KC] = Keycloak internal, [JDK] = Java standard, [JK] = Jakarta EE, [EXT] = External");
 
   return lines.join("\n");
-}
-
-async function findClassFile(sourcePath: string, className: string): Promise<string | null> {
-  try {
-    const args = ["--files", "--glob", `**/${className}.java`];
-    const result = await searchWithRg(args, sourcePath);
-    if (!result.trim()) return null;
-    const file = result.trim().split("\n")[0];
-    return file.startsWith("/") ? file : path.join(sourcePath, file);
-  } catch {
-    return null;
-  }
 }
 
 function classifyImport(importPath: string): "jdk" | "jakarta" | "internal" | "external" {
@@ -128,7 +117,7 @@ async function traceUpstream(
       if (seen.has(d.name)) return false;
       seen.add(d.name);
       return true;
-    }).slice(0, 30);
+    }).slice(0, LIMITS.MAX_DEPENDENCIES);
 
     for (const dep of uniqueDeps) {
       const kind = classifyImport(dep.fqn);
@@ -190,10 +179,10 @@ async function traceDownstream(
     const result = await searchWithRg(args, sourcePath);
     if (!result.trim()) return node;
 
-    const files = result.trim().split("\n").slice(0, 20);
+    const files = result.trim().split("\n").slice(0, LIMITS.MAX_DOWNSTREAM_FILES);
 
     for (const file of files) {
-      const fullPath = file.startsWith("/") ? file : path.join(sourcePath, file);
+      const fullPath = resolveToAbsolute(file, sourcePath);
       const relPath = path.relative(sourcePath, fullPath);
 
       try {
