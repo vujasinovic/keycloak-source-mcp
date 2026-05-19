@@ -6,24 +6,7 @@ Practical examples showing how to use each tool in `keycloak-source-mcp`. Exampl
 
 ## Source Navigation Tools
 
-### search_class
-
-Find Java classes or interfaces by name. Supports partial names and wildcards.
-
-```
-Prompt: "Find the AuthenticationProcessor class in Keycloak"
-Tool call: search_class("AuthenticationProcessor")
-```
-
-```
-Prompt: "Search for all classes with 'Token' in the name"
-Tool call: search_class("Token")
-```
-
-```
-Prompt: "Find the RealmModel class in the v24 source"
-Tool call: search_class("RealmModel", "v24")
-```
+To find a class by name, just ask `explain_implementation` — it dispatches to the right deep-analysis routine. For ad-hoc text searches, use `grep_source`.
 
 ### get_class_source
 
@@ -209,42 +192,40 @@ Registered Keycloak Source Versions
   v26  /Users/dev/keycloak-26
 ```
 
-### compare_across_versions
+### compare_versions
 
-Compare a class or interface between two Keycloak versions. Shows added, removed, and changed methods.
+Unified version comparison. Two modes:
+
+- **`target: "class"`** (default) — diff a single class or interface. Pass `query` and optionally `mode: "diff" | "side_by_side"`.
+- **`target: "spi_scan"`** — scan well-known SPIs (or a custom list) for BREAKING vs NON-BREAKING changes. Pass an optional `interfaces` list and optional explicit source paths.
+
+**Class diff:**
 
 ```
 Prompt: "What changed in the Authenticator interface between v24 and v26?"
-Tool call: compare_across_versions("Authenticator", "v24", "v26")
+Tool call: compare_versions(fromVersion="v24", toVersion="v26", query="Authenticator")
 ```
 
 ```
 Prompt: "Show side-by-side diff of RealmModel between versions"
-Tool call: compare_across_versions("RealmModel", "v24", "v26", "side_by_side")
+Tool call: compare_versions(fromVersion="v24", toVersion="v26", query="RealmModel", mode="side_by_side")
 ```
 
-```
-Prompt: "Did the AuthenticatorFactory interface change between v24 and v26?"
-Tool call: compare_across_versions("AuthenticatorFactory", "v24", "v26", "diff")
-```
-
-### detect_breaking_changes
-
-Compare SPI interfaces between two versions to detect breaking changes that would affect custom extensions.
+**SPI breaking-change scan:**
 
 ```
 Prompt: "What SPI changes between v24 and v26 would break my custom Authenticator?"
-Tool call: detect_breaking_changes("v24", "v26", ["Authenticator", "AuthenticatorFactory"])
+Tool call: compare_versions(fromVersion="v24", toVersion="v26", target="spi_scan", interfaces=["Authenticator", "AuthenticatorFactory"])
 ```
 
 ```
 Prompt: "Detect all breaking SPI changes between Keycloak 24.0.0 and 26.0.0"
-Tool call: detect_breaking_changes("24.0.0", "26.0.0")
+Tool call: compare_versions(fromVersion="24.0.0", toVersion="26.0.0", target="spi_scan")
 ```
 
 ```
-Prompt: "Check if RequiredActionProvider changed between versions using explicit source paths"
-Tool call: detect_breaking_changes("24.0.0", "26.0.0", ["RequiredActionProvider"], "/path/to/kc-24", "/path/to/kc-26")
+Prompt: "Check RequiredActionProvider against versions at explicit source paths"
+Tool call: compare_versions(fromVersion="24.0.0", toVersion="26.0.0", target="spi_scan", interfaces=["RequiredActionProvider"], sourcePathV1="/path/to/kc-24", sourcePathV2="/path/to/kc-26")
 ```
 
 ---
@@ -445,91 +426,6 @@ Prompt: "Check SPI registration in my extensions project"
 Tool call: validate_spi_registration("/projects/my-keycloak-extensions")
 ```
 
-### debug_auth_flow
-
-Real-time two-phase auth flow debugger. Captures a log snapshot, waits for you to trigger a flow, then produces a source-annotated trace showing what each authenticator did.
-
-Requires `KC_DEV_LOG_PATH`. `KC_DEV_URL` is optional (enriches output with realm config).
-
-**Phase 1 — Start (capture snapshot):**
-
-```
-Prompt: "Start debugging an auth flow in my test realm"
-Tool call: debug_auth_flow("start", "test-realm", "browser login with OTP")
-```
-
-Sample output:
-```
-Debug Auth Flow — Snapshot Captured
-============================================================
-Log file: /tmp/keycloak.log
-Current position: line 1542
-Captured at: 2024-01-15T10:39:00.000Z
-
-Now trigger your authentication flow:
-  Browser login: http://localhost:8080/realms/test-realm/account
-  Direct grant: curl -X POST http://localhost:8080/realms/test-realm/protocol/openid-connect/token ...
-
-Scenario: browser login with OTP
-
-After the flow completes, call debug_auth_flow with phase: "analyze"
-and pass the following snapshot:
-
-SNAPSHOT: {"logPath":"/tmp/keycloak.log","lineCount":1542,"takenAt":"2024-01-15T10:39:00.000Z"}
-```
-
-**Phase 2 — Analyze (produce annotated trace):**
-
-```
-Prompt: "Analyze the auth flow I just triggered"
-Tool call: debug_auth_flow("analyze", "test-realm", undefined, '{"logPath":"/tmp/keycloak.log","lineCount":1542,"takenAt":"2024-01-15T10:39:00.000Z"}')
-```
-
-Sample output:
-```
-Authentication Flow Debug Trace
-============================================================
-Realm: test-realm | New log lines analyzed: 12 | Duration: 3099ms
-Expected flow: browser
-
--- Step 1: auth-cookie -- ATTEMPTED
-   Logger: org.keycloak.authentication.AuthenticationProcessor
-   Log: Executing authenticator: auth-cookie
-   Log: No valid SSO cookie found, skipping cookie auth
-   Source: CookieAuthenticator.java
-     authenticate(): Checks for AUTH_SESSION_ID cookie, attempts SSO
-
--- Step 2: identity-provider-redirector -- ATTEMPTED
-   Logger: org.keycloak.authentication.AuthenticationProcessor
-   Log: Executing authenticator: identity-provider-redirector
-   Log: No default identity provider configured, skipping
-   Source: IdentityProviderAuthenticator.java
-
--- Step 3: auth-username-password-form -- SUCCESS
-   Logger: org.keycloak.authentication.AuthenticationProcessor
-   Log: Executing authenticator: auth-username-password-form
-   Log: Authenticator auth-username-password-form: SUCCESS
-   Source: UsernamePasswordForm.java
-     authenticate(): Display the login form
-     action(): Validate the submitted credentials
-
--- Step 4: auth-otp-form -- SUCCESS
-   Logger: org.keycloak.authentication.AuthenticationProcessor
-   Log: Authenticator auth-otp-form: SUCCESS
-
--- Result: SUCCESS
-```
-
-```
-Prompt: "Start a debug session for a direct grant flow"
-Tool call: debug_auth_flow("start", "master", "direct grant with password")
-```
-
-```
-Prompt: "Debug the auth flow using Keycloak v24 source"
-Tool call: debug_auth_flow("analyze", "master", undefined, '{"logPath":"/tmp/kc.log","lineCount":100,"takenAt":"..."}', "v24")
-```
-
 ### get_dev_instance_config
 
 Inspect the active configuration of the running Keycloak instance, focused on SPI-relevant settings.
@@ -549,6 +445,27 @@ Prompt: "Check the datasource configuration"
 Tool call: get_dev_instance_config("quarkus.datasource")
 ```
 
+### diagnose_user
+
+Investigate why a user can't log in. Searches by name, email, or username and checks account status, credentials, brute-force lockout, recent login events, and active sessions.
+
+Requires `KC_DEV_URL`, `KC_DEV_ADMIN_USERNAME`, `KC_DEV_ADMIN_PASSWORD`.
+
+```
+Prompt: "Why can't alice@corp.com log in?"
+Tool call: diagnose_user("alice@corp.com", "acme")
+```
+
+```
+Prompt: "Diagnose login issues for user 'jdoe' in master realm"
+Tool call: diagnose_user("jdoe")
+```
+
+```
+Prompt: "Look up John Doe and tell me their account state"
+Tool call: diagnose_user("John Doe", "acme")
+```
+
 ---
 
 ## Common Workflows
@@ -564,8 +481,8 @@ Tool call: get_dev_instance_config("quarkus.datasource")
 ### Upgrading Custom Extensions
 
 1. **List your versions:** `list_versions()`
-2. **Check interface changes:** `compare_across_versions("Authenticator", "v24", "v26")`
-3. **Detect breaking changes:** `detect_breaking_changes("v24", "v26", ["Authenticator", "AuthenticatorFactory"])`
+2. **Check interface changes:** `compare_versions(fromVersion="v24", toVersion="v26", query="Authenticator")`
+3. **Scan for breaking SPI changes:** `compare_versions(fromVersion="v24", toVersion="v26", target="spi_scan", interfaces=["Authenticator", "AuthenticatorFactory"])`
 4. **Run the upgrade assistant:** `upgrade_assistant("/projects/my-spi", "26.0.0")`
 5. **Check for CVEs:** `check_security_advisories("26.0.0")`
 
@@ -578,10 +495,9 @@ Tool call: get_dev_instance_config("quarkus.datasource")
 5. **Trace a specific flow:** `trace_authentication_flow("my-realm", "browser login")`
 6. **Inspect config:** `get_dev_instance_config("kc.spi")`
 
-### Debugging a Specific Auth Flow (Step-by-Step)
+### Diagnosing a User Login Issue
 
-1. **Start the debug session:** `debug_auth_flow("start", "my-realm", "browser login with OTP")`
-2. **Trigger the flow** in your browser or via curl (follow the instructions in the output)
-3. **Analyze the results:** `debug_auth_flow("analyze", "my-realm", undefined, "<snapshot JSON from step 1>")`
-4. **If errors occurred**, the output includes an Error Diagnosis section with the exception, root cause, and source file reference
-5. **Read the throwing method source:** `get_class_source("services/src/.../AuthenticationProcessor.java")`
+1. **Find and diagnose the user:** `diagnose_user("alice@corp.com", "my-realm")` — checks account status, credentials, brute-force lockout, recent events, active sessions
+2. **If the issue is in the flow itself:** `trace_authentication_flow("my-realm", "browser login with OTP")` — guidance + log analysis after the user retries
+3. **Read recent errors:** `analyze_logs(500, "authentication")`
+4. **Read the throwing method source:** `get_class_source("services/src/.../AuthenticationProcessor.java")`
