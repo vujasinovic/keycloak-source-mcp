@@ -205,6 +205,19 @@ Full Source
 
 ## Advanced Tools
 
+### add_version_from_branch
+
+Create a git worktree of a Keycloak `release/X.Y` branch and register it as a named version. Lets you support multiple versions from a single clone (shared `.git`) without re-cloning gigabytes per version.
+
+- **Inputs:** `versionName`, `branch`, optionally `baseRepoPath` (defaults to `KEYCLOAK_SOURCE_PATH`), optionally `worktreePath`.
+- **Example prompt:** *"Set up Keycloak 24.0 as a new version from the release branch."*
+
+```
+> add_version_from_branch(versionName="v24", branch="release/24.0")
+```
+
+The version is usable immediately. Add a matching `KEYCLOAK_SOURCE_V24=<path>` env var to persist across restarts.
+
 ### compare_versions
 
 Compare Keycloak source across two registered versions. One tool with two modes:
