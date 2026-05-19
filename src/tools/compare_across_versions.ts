@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { versionManager } from "../version-manager.js";
-import { searchWithRg, parseJavaClass, type ParsedMethod } from "../utils.js";
+import { parseJavaClass, findClassFile, buildMethodMap, type ParsedMethod } from "../utils.js";
+import { SEPARATOR } from "../constants.js";
 
 /**
  * Compare a class, interface, or search result across two registered Keycloak versions.
@@ -29,9 +30,12 @@ export async function compareAcrossVersions(
     return `Error: ${e instanceof Error ? e.message : String(e)}`;
   }
 
-  // Find the class/interface in both versions
-  const fileFrom = await findFile(pathFrom, query);
-  const fileTo = await findFile(pathTo, query);
+  // Find the class/interface in both versions (parallel)
+  const classQuery = query.endsWith(".java") ? query.replace(/\.java$/, "") : query;
+  const [fileFrom, fileTo] = await Promise.all([
+    findClassFile(pathFrom, classQuery),
+    findClassFile(pathTo, classQuery),
+  ]);
 
   if (!fileFrom && !fileTo) {
     return `"${query}" not found in either ${fromVersion} or ${toVersion}.`;
@@ -39,7 +43,7 @@ export async function compareAcrossVersions(
 
   const lines: string[] = [];
   lines.push(`Comparison: "${query}" — ${fromVersion} vs ${toVersion}`);
-  lines.push("=".repeat(60));
+  lines.push(SEPARATOR.HEADER);
   lines.push("");
 
   if (!fileFrom) {
@@ -73,22 +77,6 @@ export async function compareAcrossVersions(
   }
 
   return lines.join("\n");
-}
-
-async function findFile(sourcePath: string, query: string): Promise<string | null> {
-  // Try as class name first
-  const classQuery = query.endsWith(".java") ? query : `${query}.java`;
-  try {
-    const args = ["--files", "--glob", `**/${classQuery}`];
-    const result = await searchWithRg(args, sourcePath);
-    if (result.trim()) {
-      const file = result.trim().split("\n")[0];
-      return file.startsWith("/") ? file : path.join(sourcePath, file);
-    }
-  } catch {
-    // ignore
-  }
-  return null;
 }
 
 function generateDiff(
@@ -137,10 +125,8 @@ function generateDiff(
   }
 
   // Compare methods
-  const fromMethods = new Map<string, ParsedMethod>();
-  const toMethods = new Map<string, ParsedMethod>();
-  for (const m of from.methods) fromMethods.set(m.name, m);
-  for (const m of to.methods) toMethods.set(m.name, m);
+  const fromMethods = buildMethodMap(from.methods);
+  const toMethods = buildMethodMap(to.methods);
 
   const removedMethods: ParsedMethod[] = [];
   const addedMethods: ParsedMethod[] = [];
@@ -196,7 +182,7 @@ function generateDiff(
   }
 
   // Summary
-  lines.push("-".repeat(40));
+  lines.push(SEPARATOR.SECTION);
   lines.push(`Summary: ${removedMethods.length} removed, ${addedMethods.length} added, ${changedMethods.length} changed`);
 
   return lines.join("\n");

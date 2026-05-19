@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import { getSourcePath, searchWithRg, validateMermaid } from "../utils.js";
+import { SEPARATOR } from "../constants.js";
 
 interface FlowExecution {
   authenticator?: string;
@@ -116,7 +117,7 @@ async function visualizeFromExport(exportPath: string, flowName?: string): Promi
 
   const lines: string[] = [];
   lines.push(`Authentication Flow: "${flow.alias}"${realmData.realm ? ` (Realm: ${realmData.realm})` : ""}`);
-  lines.push("=".repeat(60));
+  lines.push(SEPARATOR.HEADER);
   lines.push("");
   lines.push("```mermaid");
   lines.push(mermaid);
@@ -334,7 +335,7 @@ async function visualizeFromDescription(description: string): Promise<string> {
 
   const lines: string[] = [];
   lines.push(`Authentication Flow (from description)`);
-  lines.push("=".repeat(60));
+  lines.push(SEPARATOR.HEADER);
   lines.push(`Description: ${description}`);
   lines.push("");
   lines.push("```mermaid");

@@ -1,4 +1,5 @@
-import { getSourcePath, searchWithRg, relativePath, formatResults } from "../utils.js";
+import { getSourcePath, searchWithRg, relativePath, formatResults, stripSourcePrefix } from "../utils.js";
+import { LIMITS } from "../constants.js";
 
 /**
  * Search for a Java class or interface by name in the Keycloak source.
@@ -31,7 +32,7 @@ export async function searchClass(className: string, version?: string): Promise<
   const matches: string[] = [];
 
   if (fileResults.trim()) {
-    const files = fileResults.trim().split("\n").slice(0, 20);
+    const files = fileResults.trim().split("\n").slice(0, LIMITS.MAX_SEARCH_RESULTS);
 
     for (const file of files) {
       const relPath = relativePath(file.startsWith("/") ? file : `${sourcePath}/${file}`);
@@ -79,11 +80,9 @@ export async function searchClass(className: string, version?: string): Promise<
     try {
       const contentResults = await searchWithRg(contentArgs, sourcePath);
       if (contentResults.trim()) {
-        const lines = contentResults.trim().split("\n").slice(0, 20);
+        const lines = contentResults.trim().split("\n").slice(0, LIMITS.MAX_SEARCH_RESULTS);
         for (const line of lines) {
-          const relLine = line.startsWith(sourcePath)
-            ? line.substring(sourcePath.length + 1)
-            : line;
+          const relLine = stripSourcePrefix(line, sourcePath);
           matches.push(`  ${relLine}`);
         }
       }
@@ -95,6 +94,6 @@ export async function searchClass(className: string, version?: string): Promise<
   return formatResults(
     `Search results for class: "${className}"`,
     matches,
-    20
+    LIMITS.MAX_SEARCH_RESULTS
   );
 }

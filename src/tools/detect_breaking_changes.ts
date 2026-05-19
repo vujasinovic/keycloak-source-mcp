@@ -1,6 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getSourcePath, searchWithRg, parseJavaClass, type ParsedMethod } from "../utils.js";
+import {
+  getSourcePath,
+  parseJavaClass,
+  findClassFile,
+  buildMethodMap,
+  formatMethodSignature,
+} from "../utils.js";
+import { versionManager } from "../version-manager.js";
+import { SEPARATOR } from "../constants.js";
 
 const DEFAULT_SPIS = [
   "Authenticator",
@@ -38,8 +46,9 @@ export async function detectBreakingChanges(
   if (!fromVersion || !fromVersion.trim()) return "Error: fromVersion is required.";
   if (!toVersion || !toVersion.trim()) return "Error: toVersion is required.";
 
-  const v1Path = sourcePathV1 || getSourcePath();
-  const v2Path = sourcePathV2 || getSourcePath();
+  // Resolve version paths: explicit paths take priority, then version manager, then default
+  const v1Path = sourcePathV1 || tryResolveVersion(fromVersion) || getSourcePath();
+  const v2Path = sourcePathV2 || tryResolveVersion(toVersion) || getSourcePath();
 
   if (!fs.existsSync(v1Path)) return `Error: Source path for v1 does not exist: ${v1Path}`;
   if (!fs.existsSync(v2Path)) return `Error: Source path for v2 does not exist: ${v2Path}`;
@@ -48,23 +57,18 @@ export async function detectBreakingChanges(
     ? interfaceNames
     : DEFAULT_SPIS;
 
-  const reports: InterfaceReport[] = [];
-
-  for (const ifaceName of interfaces) {
-    const report = await compareInterface(ifaceName, v1Path, v2Path);
-    if (report) reports.push(report);
-  }
+  // Compare all interfaces in parallel
+  const results = await Promise.all(
+    interfaces.map((ifaceName) => compareInterface(ifaceName, v1Path, v2Path))
+  );
+  const reports = results.filter((r): r is InterfaceReport => r !== null);
 
   return formatReport(fromVersion, toVersion, reports);
 }
 
-async function findInterfaceFile(sourcePath: string, interfaceName: string): Promise<string | null> {
+function tryResolveVersion(version: string): string | null {
   try {
-    const args = ["--files", "--glob", `**/${interfaceName}.java`];
-    const result = await searchWithRg(args, sourcePath);
-    if (!result.trim()) return null;
-    const file = result.trim().split("\n")[0];
-    return file.startsWith("/") ? file : path.join(sourcePath, file);
+    return versionManager.resolve(version);
   } catch {
     return null;
   }
@@ -75,8 +79,10 @@ async function compareInterface(
   v1Path: string,
   v2Path: string
 ): Promise<InterfaceReport | null> {
-  const fileV1 = await findInterfaceFile(v1Path, interfaceName);
-  const fileV2 = await findInterfaceFile(v2Path, interfaceName);
+  const [fileV1, fileV2] = await Promise.all([
+    findClassFile(v1Path, interfaceName),
+    findClassFile(v2Path, interfaceName),
+  ]);
 
   if (!fileV1 && !fileV2) return null;
 
@@ -103,28 +109,23 @@ async function compareInterface(
     return report;
   }
 
-  const sourceV1 = await fs.promises.readFile(fileV1, "utf-8");
-  const sourceV2 = await fs.promises.readFile(fileV2, "utf-8");
+  const [sourceV1, sourceV2] = await Promise.all([
+    fs.promises.readFile(fileV1, "utf-8"),
+    fs.promises.readFile(fileV2, "utf-8"),
+  ]);
 
   const parsedV1 = parseJavaClass(sourceV1);
   const parsedV2 = parseJavaClass(sourceV2);
 
-  const methodsV1 = new Map<string, ParsedMethod>();
-  const methodsV2 = new Map<string, ParsedMethod>();
-
-  for (const m of parsedV1.methods) {
-    methodsV1.set(m.name, m);
-  }
-  for (const m of parsedV2.methods) {
-    methodsV2.set(m.name, m);
-  }
+  const methodsV1 = buildMethodMap(parsedV1.methods);
+  const methodsV2 = buildMethodMap(parsedV2.methods);
 
   // Check for removed methods
   for (const [name, method] of methodsV1) {
     if (!methodsV2.has(name)) {
       report.changes.push({
         severity: "BREAKING",
-        description: `Method removed: ${method.returnType} ${name}(${method.parameters})`,
+        description: `Method removed: ${formatMethodSignature(method)}`,
       });
     }
   }
@@ -136,8 +137,8 @@ async function compareInterface(
       report.changes.push({
         severity: isDefault ? "NON-BREAKING" : "BREAKING",
         description: isDefault
-          ? `New default method added: ${method.returnType} ${name}(${method.parameters})`
-          : `New required method added (no default impl): ${method.returnType} ${name}(${method.parameters})`,
+          ? `New default method added: ${formatMethodSignature(method)}`
+          : `New required method added (no default impl): ${formatMethodSignature(method)}`,
       });
     }
   }
@@ -153,7 +154,7 @@ async function compareInterface(
     if (sigV1 !== sigV2) {
       report.changes.push({
         severity: "BREAKING",
-        description: `Method signature changed: ${name}\n      Was: ${methodV1.returnType} ${name}(${methodV1.parameters})\n      Now: ${methodV2.returnType} ${name}(${methodV2.parameters})`,
+        description: `Method signature changed: ${name}\n      Was: ${formatMethodSignature(methodV1)}\n      Now: ${formatMethodSignature(methodV2)}`,
       });
     } else if (methodV1.javadoc !== methodV2.javadoc && methodV1.javadoc && methodV2.javadoc) {
       report.changes.push({
@@ -169,7 +170,7 @@ async function compareInterface(
 function formatReport(fromVersion: string, toVersion: string, reports: InterfaceReport[]): string {
   const lines: string[] = [];
   lines.push(`Breaking Changes Report: ${fromVersion} -> ${toVersion}`);
-  lines.push("=".repeat(60));
+  lines.push(SEPARATOR.HEADER);
   lines.push("");
 
   if (reports.length === 0) {
@@ -187,7 +188,7 @@ function formatReport(fromVersion: string, toVersion: string, reports: Interface
     totalNonBreaking += nonBreaking;
 
     lines.push(`Interface: ${report.interfaceName}`);
-    lines.push("-".repeat(40));
+    lines.push(SEPARATOR.SECTION);
     lines.push(`  v1: ${report.fileV1}`);
     lines.push(`  v2: ${report.fileV2}`);
 
@@ -202,7 +203,7 @@ function formatReport(fromVersion: string, toVersion: string, reports: Interface
     lines.push("");
   }
 
-  lines.push("-".repeat(60));
+  lines.push(SEPARATOR.FOOTER);
   lines.push(`Summary: ${totalBreaking} breaking change(s), ${totalNonBreaking} non-breaking change(s)`);
 
   if (totalBreaking > 0) {

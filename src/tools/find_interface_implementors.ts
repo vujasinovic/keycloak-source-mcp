@@ -1,4 +1,5 @@
-import { getSourcePath, searchWithRg, relativePath, formatResults } from "../utils.js";
+import { getSourcePath, searchWithRg, formatResults, stripSourcePrefix } from "../utils.js";
+import { LIMITS } from "../constants.js";
 
 /**
  * Find all classes that implement a given interface or extend a given class.
@@ -26,10 +27,7 @@ export async function findInterfaceImplementors(interfaceName: string, version?:
         const lines = results.trim().split("\n");
         for (const line of lines) {
           // Format: filepath:linenum:content
-          let relLine = line;
-          if (line.startsWith(sourcePath)) {
-            relLine = line.substring(sourcePath.length + 1);
-          }
+          const relLine = stripSourcePrefix(line, sourcePath);
 
           const colonIdx = relLine.indexOf(":");
           const secondColon = relLine.indexOf(":", colonIdx + 1);
@@ -60,6 +58,6 @@ export async function findInterfaceImplementors(interfaceName: string, version?:
   return formatResults(
     `Implementors/subclasses of: "${interfaceName}"`,
     unique,
-    40
+    LIMITS.MAX_IMPLEMENTORS
   );
 }

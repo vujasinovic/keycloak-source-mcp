@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getSourcePath, searchWithRg, relativePath } from "../utils.js";
+import { getSourcePath, searchWithRg, relativePath, resolveToAbsolute } from "../utils.js";
+import { SEPARATOR } from "../constants.js";
 
 /**
  * Search and list SPI definitions in META-INF/services files.
@@ -30,7 +31,7 @@ export async function searchSpiDefinitions(filter?: string, version?: string): P
   const results: string[] = [];
 
   for (const file of files) {
-    const fullPath = file.startsWith("/") ? file : path.join(sourcePath, file);
+    const fullPath = resolveToAbsolute(file, sourcePath);
     const spiName = path.basename(fullPath);
 
     // Apply filter if provided
@@ -64,7 +65,7 @@ export async function searchSpiDefinitions(filter?: string, version?: string): P
   }
 
   let output = `SPI Definitions${filter ? ` (filter: "${filter}")` : ""}\n`;
-  output += "=".repeat(60) + "\n\n";
+  output += SEPARATOR.HEADER + "\n\n";
   output += `Found ${results.length} SPI definition(s):\n\n`;
   output += results.join("\n\n");
 

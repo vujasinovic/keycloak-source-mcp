@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getSourcePath, searchWithRg } from "../utils.js";
+import { getSourcePath, searchWithRg, stripSourcePrefix } from "../utils.js";
+import { SEPARATOR } from "../constants.js";
 
 /**
  * Get the full source code of a specific Java class.
@@ -18,7 +19,7 @@ export async function getClassSource(filePath: string, version?: string): Promis
   if (fs.existsSync(resolved)) {
     const content = await fs.promises.readFile(resolved, "utf-8");
     const relPath = path.relative(sourcePath, resolved);
-    return `File: ${relPath}\n${"=".repeat(60)}\n\n${content}`;
+    return `File: ${relPath}\n${SEPARATOR.HEADER}\n\n${content}`;
   }
 
   // File not found — try searching by filename
@@ -47,11 +48,11 @@ export async function getClassSource(filePath: string, version?: string): Promis
           header += `(Best match — ${files.length} files found with name "${filename}")\n`;
           header += `Other matches:\n`;
           for (const f of files.slice(1, 6)) {
-            const rel = f.startsWith(sourcePath) ? f.substring(sourcePath.length + 1) : f;
+            const rel = stripSourcePrefix(f, sourcePath);
             header += `  - ${rel}\n`;
           }
         }
-        header += "=".repeat(60);
+        header += SEPARATOR.HEADER;
 
         return `${header}\n\n${content}`;
       }
